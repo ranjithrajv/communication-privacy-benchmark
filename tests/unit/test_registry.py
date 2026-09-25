@@ -84,22 +84,27 @@ def test_every_email_check_declares_the_adversary_it_measures(registry: Registry
         assert all(model.id and model.title and model.description for model in check.threat_models)
 
 
-def test_only_the_remote_content_check_has_an_adapter(registry: Registry) -> None:
+def test_a_check_without_an_adapter_says_what_it_is_waiting_for(registry: Registry) -> None:
     """The corpus is declared ahead of the adapters, and says so per check.
 
-    The other six are unimplemented on purpose, and their descriptions must state what
-    each one is still waiting for rather than implying a measurement exists.
+    A check still on the unimplemented adapter must name the capability it is waiting
+    for rather than implying a measurement exists. The three with an adapter still say
+    so too, because an adapter is not a lane: each names the gateway-side capability
+    that has to exist before it can report a product result.
     """
 
-    implemented = {
-        check_id
-        for check_id in EMAIL_CHECKS
-        if registry.resolve_check(f"{check_id}@1.0.0").adapter_id != "unimplemented"
-    }
-    assert implemented == {"email.remote-content"}
-    for check_id in sorted(EMAIL_CHECKS - implemented):
+    for check_id in EMAIL_CHECKS:
         check = registry.resolve_check(f"{check_id}@1.0.0")
-        assert "Unimplemented because" in check.description, check_id
+        description = check.description.lower()
+        if check.adapter_id == "unimplemented":
+            assert "unimplemented because" in description, (
+                f"{check_id} has no adapter and must state what it is waiting for"
+            )
+        else:
+            assert check.adapter_id == "ept"
+            assert "adapter answers this check" in description, (
+                f"{check_id} has an adapter and must state the remaining gate"
+            )
         assert check.status.value == "draft", check_id
 
 

@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -143,6 +144,11 @@ class GatewayTestState(_GatewayModel):
     available only because a self-hosted deployment controls its own SMTP path.
     ``watchers_healthy`` covers every watcher being down, which would otherwise look
     exactly like a clean result.
+
+    ``exercised`` names the upstream vectors this test actually ran. It is the only way
+    to tell "the client resolved nothing" from "the test never offered the client
+    anything to resolve". A check that depends on a vector absent from this list has not
+    been measured, and must not be adjudicated as if it had.
     """
 
     test_id: Identifier
@@ -150,6 +156,23 @@ class GatewayTestState(_GatewayModel):
     delivered_at: UtcDateTime | None = None
     watchers_healthy: bool = False
     window_expires_at: UtcDateTime
+    exercised: tuple[str, ...] = ()
+
+
+#: Upstream vectors each check needs the gateway to have actually run, for checks whose
+#: validity cannot be established by delivery, open, and watcher health alone.
+#:
+#: ``email.remote-content`` is deliberately absent: it already has enough to separate a
+#: blocked client from an unexercised probe, so requiring a vector name would make it
+#: inconclusive against a gateway that has not yet reported them.
+#:
+#: The names are the upstream EPT test names, which is why this table exists rather than
+#: a channel-level requirement: upstream watchers are label-restricted, so "a DNS watcher
+#: was up" does not mean "this vector's label was watched".
+REQUIRED_EXERCISED: Mapping[str, frozenset[str]] = {
+    "email.dns-prefetch": frozenset({"dnsAnchor"}),
+    "email.reader-identification": frozenset({"img"}),
+}
 
 
 class Adjudication(StrEnum):
@@ -162,6 +185,10 @@ class Adjudication(StrEnum):
     WATCHERS_UNHEALTHY = "ept.watchers-unhealthy"
     PROVIDER_PREFETCH_ONLY = "ept.provider-prefetch-only"
     UNATTRIBUTED_ACTIVITY = "ept.unattributed-activity"
+    VECTOR_NOT_EXERCISED = "ept.vector-not-exercised"
+    RESOLVER_DISCLOSED = "ept.resolver-disclosed"
+    NO_RESOLUTION_OBSERVED = "ept.no-resolution-observed"
+    READER_IDENTIFIED = "ept.reader-identified"
     UNSUPPORTED_CHECK = "ept.unsupported-check"
 
 
@@ -302,6 +329,199 @@ def adjudicate(
     )
 
 
+def _client_observations(
+    observations: tuple[GatewayObservation, ...],
+) -> list[GatewayObservation]:
+    return [item for item in observations if item.origin in CLIENT_ATTRIBUTABLE_ORIGINS]
+
+
+def adjudicate_dns_prefetch(
+    *,
+    state: GatewayTestState,
+    observations: tuple[GatewayObservation, ...],
+    open_asserted: bool,
+) -> tuple[ResultStatus, Adjudication, str]:
+    """Decide ``email.dns-prefetch``.
+
+    Here the *resolution* is the finding rather than a preliminary to one. A name that
+    resolves and is never fetched still hands the canary operator the reader's resolver
+    address, which identifies an internet provider and roughly a location, so DNS and
+    SNI contacts are decisive in their own right. Folding them into the remote-content
+    result would lose the difference between the two adversaries, which is the entire
+    reason this check exists separately.
+    """
+
+    validity = _settle_validity(state=state, open_asserted=open_asserted)
+    if validity is not None:
+        return validity
+
+    foreign = [item for item in observations if item.probe_id != state.probe_id]
+    if foreign:
+        raise AdapterError(f"gateway returned {len(foreign)} observations for another probe id")
+
+    client = _client_observations(observations)
+    resolved = [item for item in client if item.channel in RESOLUTION_CHANNELS]
+    if resolved:
+        channels = sorted({item.channel.value for item in resolved})
+        vectors = sorted({item.vector for item in resolved})
+        return (
+            ResultStatus.FAIL,
+            Adjudication.RESOLVER_DISCLOSED,
+            f"The client resolved the canary name on {', '.join(channels)} for "
+            f"{', '.join(vectors)} without being asked, disclosing the reader's resolver "
+            f"to whoever operates the canary.",
+        )
+
+    provider = [item for item in observations if item.origin is ObservationOrigin.PROVIDER]
+    if provider and len(provider) == len(observations):
+        return (
+            ResultStatus.INCONCLUSIVE,
+            Adjudication.PROVIDER_PREFETCH_ONLY,
+            "Only provider infrastructure resolved the canary name. That discloses the "
+            "provider's resolver, not the reader's, so no client result is claimed.",
+        )
+    if observations:
+        return (
+            ResultStatus.INCONCLUSIVE,
+            Adjudication.UNATTRIBUTED_ACTIVITY,
+            "Canary resolutions were observed but none could be attributed to the client, "
+            "so no client result is claimed.",
+        )
+    return (
+        ResultStatus.PASS,
+        Adjudication.NO_RESOLUTION_OBSERVED,
+        "The message was opened with every watcher healthy, and the client did not resolve "
+        "the canary name on any channel.",
+    )
+
+
+#: What the canary can attribute a single contact to. Absent keys mean the gateway did
+#: not report that field, which is never treated as "not disclosed".
+READER_FIELDS = ("source_address", "user_agent")
+
+
+def adjudicate_reader_identification(
+    *,
+    state: GatewayTestState,
+    observations: tuple[GatewayObservation, ...],
+    open_asserted: bool,
+) -> tuple[ResultStatus, Adjudication, str]:
+    """Decide ``email.reader-identification``.
+
+    This is a question about what one contact reveals rather than whether a contact
+    happened, so it is deliberately separate from ``email.remote-content``: a client can
+    block every fetch and still hand the canary a source address and a user agent
+    through anything that fetches on the user's behalf.
+
+    The verdict is only about *client-attributed* contacts. A provider-side prefetch
+    discloses the provider's infrastructure, and reporting that as a reader disclosure
+    would be a false finding about the product.
+    """
+
+    validity = _settle_validity(state=state, open_asserted=open_asserted)
+    if validity is not None:
+        return validity
+
+    foreign = [item for item in observations if item.probe_id != state.probe_id]
+    if foreign:
+        raise AdapterError(f"gateway returned {len(foreign)} observations for another probe id")
+
+    client = _client_observations(observations)
+    if not client:
+        return (
+            ResultStatus.PASS,
+            Adjudication.NO_REMOTE_CONTENT_OBSERVED,
+            "The client made no canary contact, so the canary learned nothing about the "
+            "reader from this test.",
+        )
+
+    disclosed = sorted(
+        {
+            field
+            for item in client
+            for field in READER_FIELDS
+            if item.detail.get(field) not in (None, "")
+        }
+    )
+    if disclosed:
+        return (
+            ResultStatus.FAIL,
+            Adjudication.READER_IDENTIFIED,
+            f"A client-attributed canary contact carried {', '.join(disclosed)}, so the "
+            f"canary can single out the reader among other addresses.",
+        )
+    return (
+        ResultStatus.PARTIAL,
+        Adjudication.UNATTRIBUTED_ACTIVITY,
+        "The client contacted the canary but the gateway reported no reader-identifying "
+        "field, so what was disclosed cannot be stated. That is not a clean result.",
+    )
+
+
+def _settle_validity(
+    *, state: GatewayTestState, open_asserted: bool
+) -> tuple[ResultStatus, Adjudication, str] | None:
+    """Return an invalid-measurement verdict, or ``None`` when the probe is sound.
+
+    Shared so every per-check adjudication refuses a broken probe identically, rather
+    than each one re-deriving the same three guards and eventually disagreeing about one.
+    """
+
+    if state.delivered_at is None:
+        return (
+            ResultStatus.INCONCLUSIVE,
+            Adjudication.MESSAGE_NOT_DELIVERED,
+            "The gateway never confirmed delivery, so nothing can be attributed to the client.",
+        )
+    if not state.watchers_healthy:
+        return (
+            ResultStatus.INCONCLUSIVE,
+            Adjudication.WATCHERS_UNHEALTHY,
+            "The canary watchers were not healthy, so an absence of traffic proves nothing.",
+        )
+    if not open_asserted:
+        return (
+            ResultStatus.INCONCLUSIVE,
+            Adjudication.OPEN_NOT_ASSERTED,
+            "The message was delivered but no open was asserted by the harness, so "
+            "remote-content behavior was never exercised.",
+        )
+    return None
+
+
+#: Channels on which a name being resolved is itself the disclosure.
+RESOLUTION_CHANNELS = frozenset({ObservationChannel.DNS, ObservationChannel.TLS_SNI})
+
+
+def _missing_vectors(check_id: str, state: GatewayTestState) -> set[str]:
+    """Vectors this check needs that the gateway did not report running."""
+
+    required = REQUIRED_EXERCISED.get(check_id)
+    if required is None:
+        return set()
+    return set(required) - set(state.exercised)
+
+
+def _adjudicate_check(
+    *,
+    check_id: str,
+    state: GatewayTestState,
+    observations: tuple[GatewayObservation, ...],
+    open_asserted: bool,
+) -> tuple[ResultStatus, Adjudication, str]:
+    """Route a check to the adjudication written for its own disclosure."""
+
+    if check_id == "email.dns-prefetch":
+        return adjudicate_dns_prefetch(
+            state=state, observations=observations, open_asserted=open_asserted
+        )
+    if check_id == "email.reader-identification":
+        return adjudicate_reader_identification(
+            state=state, observations=observations, open_asserted=open_asserted
+        )
+    return adjudicate(state=state, observations=observations, open_asserted=open_asserted)
+
+
 @dataclass(slots=True)
 class EptGatewayAdapter:
     """Runs the email checks a pinned EPT deployment can answer.
@@ -323,7 +543,13 @@ class EptGatewayAdapter:
     #: observer only once a real open signal exists, never to unblock a run.
     open_observer: OpenObserver | None = None
     supported_checks: frozenset[str] = field(
-        default_factory=lambda: frozenset({"email.remote-content"})
+        default_factory=lambda: frozenset(
+            {
+                "email.remote-content",
+                "email.dns-prefetch",
+                "email.reader-identification",
+            }
+        )
     )
     redaction_policy_id: str = "evidence-retention-v1"
     raw_retention: str = "30-days-then-delete"
@@ -347,8 +573,30 @@ class EptGatewayAdapter:
         observations = await self._await_observations(created.test_id, state, check.timeout_seconds)
         open_asserted = self.open_observer is not None and self.open_observer(context)
 
-        status, reason_code, summary = adjudicate(
-            state=state, observations=observations, open_asserted=open_asserted
+        missing = _missing_vectors(check.check_id, state)
+        if missing:
+            # The test never ran the vector this check measures. Adjudicating the empty
+            # observation set here would report a clean client for a probe that offered
+            # the client nothing to do.
+            return AdapterOutcome(
+                status=ResultStatus.INCONCLUSIVE,
+                reason_code=Adjudication.VECTOR_NOT_EXERCISED.value,
+                summary=(
+                    f"The gateway did not report {', '.join(sorted(missing))} as exercised for "
+                    f"this test, so {check.check_id} was not measured."
+                ),
+                details={
+                    "check_id": check.check_id,
+                    "exercised": ",".join(sorted(state.exercised)),
+                    "missing_vectors": ",".join(sorted(missing)),
+                },
+            )
+
+        status, reason_code, summary = _adjudicate_check(
+            check_id=check.check_id,
+            state=state,
+            observations=observations,
+            open_asserted=open_asserted,
         )
         return AdapterOutcome(
             status=status,

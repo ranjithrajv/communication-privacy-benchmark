@@ -16,21 +16,26 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from pydantic import ValidationError
+from pydantic import JsonValue, ValidationError
 
 from privacy_benchmark.adapters.base import AdapterError
 from privacy_benchmark.adapters.ept import (
     CLIENT_ATTRIBUTABLE_ORIGINS,
     OBSERVATION_CHANNELS,
+    REQUIRED_EXERCISED,
     Adjudication,
     GatewayObservation,
     GatewayTestState,
     ObservationChannel,
     ObservationOrigin,
+    _missing_vectors,
     adjudicate,
+    adjudicate_dns_prefetch,
+    adjudicate_reader_identification,
     gateway_config_from_environment,
     mailbox_config_from_environment,
 )
+from privacy_benchmark.spec.models import ResultStatus
 
 DELIVERED = datetime(2026, 9, 25, 12, 0, tzinfo=UTC)
 OPENED = datetime(2026, 9, 25, 12, 1, tzinfo=UTC)
@@ -59,6 +64,7 @@ def _observation(
     origin: ObservationOrigin = ObservationOrigin.CLIENT,
     probe_id: str = "probe.one",
     remote_host: str = CANARY_HOST,
+    detail: dict[str, JsonValue] | None = None,
 ) -> GatewayObservation:
     return GatewayObservation(
         channel=channel,
@@ -67,6 +73,7 @@ def _observation(
         origin=origin,
         remote_host=remote_host,
         observed_at=OPENED + timedelta(seconds=5),
+        detail=detail or {},
     )
 
 
@@ -257,3 +264,140 @@ class TestGatewayConfiguration:
 def test_every_adjudication_has_a_stable_reason_code() -> None:
     for reason in Adjudication:
         assert reason.value.startswith("ept.")
+
+
+# --- email.dns-prefetch ---------------------------------------------------------
+#
+# A resolution is the finding here, not a preliminary to one: a name that resolves and
+# is never fetched still hands the canary operator the reader's resolver address, which
+# identifies an internet provider and roughly a location.
+
+
+def _dns(*observations: GatewayObservation) -> ResultStatus:
+    status, _, _ = adjudicate_dns_prefetch(
+        state=_state(), observations=observations, open_asserted=True
+    )
+    return status
+
+
+def test_a_client_dns_resolution_is_a_resolver_disclosure() -> None:
+    assert _dns(_observation(ObservationChannel.DNS, vector="dnsAnchor")) is ResultStatus.FAIL
+
+
+def test_a_client_sni_contact_is_a_disclosure_even_without_a_request() -> None:
+    status, _, _ = adjudicate_dns_prefetch(
+        state=_state(),
+        observations=(_observation(ObservationChannel.TLS_SNI, vector="linkPreconnect"),),
+        open_asserted=True,
+    )
+    assert status is ResultStatus.FAIL
+
+
+def test_resolving_without_fetching_is_a_fail_not_a_partial() -> None:
+    """The remote-content ladder calls this preliminary; here it is the whole finding."""
+
+    assert _dns(_observation(ObservationChannel.DNS, vector="dnsAnchor")) is ResultStatus.FAIL
+
+
+def test_a_provider_resolution_is_never_a_reader_disclosure() -> None:
+    status, reason, _ = adjudicate_dns_prefetch(
+        state=_state(),
+        observations=(_observation(ObservationChannel.DNS, origin=ObservationOrigin.PROVIDER),),
+        open_asserted=True,
+    )
+    assert status is ResultStatus.INCONCLUSIVE
+    assert reason is Adjudication.PROVIDER_PREFETCH_ONLY
+
+
+def test_no_resolution_at_all_is_a_pass() -> None:
+    assert _dns() is ResultStatus.PASS
+
+
+def test_the_dns_result_refuses_an_unwatched_lab() -> None:
+    status, reason, _ = adjudicate_dns_prefetch(
+        state=_state(watchers_healthy=False), observations=(), open_asserted=True
+    )
+    assert status is ResultStatus.INCONCLUSIVE
+    assert reason is Adjudication.WATCHERS_UNHEALTHY
+
+
+# --- email.reader-identification ------------------------------------------------
+
+
+def _identifying(
+    origin: ObservationOrigin = ObservationOrigin.CLIENT, **detail: object
+) -> GatewayObservation:
+    return _observation(origin=origin, detail=dict(detail))
+
+
+def test_a_contact_carrying_a_source_address_discloses_the_reader() -> None:
+    status, reason, _ = adjudicate_reader_identification(
+        state=_state(),
+        observations=(_identifying(source_address="203.0.113.10"),),
+        open_asserted=True,
+    )
+    assert status is ResultStatus.FAIL
+    assert reason is Adjudication.READER_IDENTIFIED
+
+
+def test_the_reported_reader_fields_are_named_in_the_verdict() -> None:
+    _, _, summary = adjudicate_reader_identification(
+        state=_state(),
+        observations=(_identifying(source_address="203.0.113.10", user_agent="Thunderbird"),),
+        open_asserted=True,
+    )
+    assert "source_address" in summary
+    assert "user_agent" in summary
+
+
+def test_a_client_contact_with_no_identifying_field_is_not_a_clean_result() -> None:
+    """Nothing reported is not the same as nothing disclosed, so it is partial."""
+
+    status, _, _ = adjudicate_reader_identification(
+        state=_state(), observations=(_identifying(),), open_asserted=True
+    )
+    assert status is ResultStatus.PARTIAL
+
+
+def test_no_client_contact_means_nothing_was_learned() -> None:
+    status, _, _ = adjudicate_reader_identification(
+        state=_state(), observations=(), open_asserted=True
+    )
+    assert status is ResultStatus.PASS
+
+
+def test_a_proxied_provider_contact_does_not_identify_the_reader() -> None:
+    """A prefetch discloses the provider's address, not the user's, so it is not a fail."""
+
+    status, reason, _ = adjudicate_reader_identification(
+        state=_state(),
+        observations=(
+            _identifying(origin=ObservationOrigin.PROVIDER, source_address="198.51.100.7"),
+        ),
+        open_asserted=True,
+    )
+    assert status is not ResultStatus.FAIL
+    assert reason is not Adjudication.READER_IDENTIFIED
+
+
+# --- the required-vector contract ------------------------------------------------
+
+
+def test_only_checks_that_need_a_vector_name_one() -> None:
+    """remote-content is excluded on purpose: its existing guards already suffice."""
+
+    assert "email.remote-content" not in REQUIRED_EXERCISED
+    assert REQUIRED_EXERCISED["email.dns-prefetch"] == frozenset({"dnsAnchor"})
+
+
+@pytest.mark.parametrize(
+    ("exercised", "missing"),
+    [((), {"dnsAnchor"}), (("img",), {"dnsAnchor"}), (("dnsAnchor",), set())],
+)
+def test_a_missing_vector_is_what_guards_against_a_fabricated_pass(
+    exercised: tuple[str, ...], missing: set[str]
+) -> None:
+    state = _state()
+    object.__setattr__(state, "exercised", exercised)
+    assert _missing_vectors("email.dns-prefetch", state) == missing
+    assert _missing_vectors("email.remote-content", state) == set()

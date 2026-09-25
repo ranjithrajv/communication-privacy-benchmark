@@ -12,6 +12,15 @@ from typing import Any
 import click
 
 from privacy_benchmark.adapters.base import AdapterRegistry
+from privacy_benchmark.adapters.chat_appium import (
+    ChatAppiumAdapter,
+    ChatGatewayClient,
+    numbers_config_from_environment,
+)
+from privacy_benchmark.adapters.chat_appium import (
+    gateway_config_from_environment as chat_gateway_config_from_environment,
+)
+from privacy_benchmark.adapters.chat_notification import ChatNotificationAdapter
 from privacy_benchmark.adapters.ept import (
     EptGatewayAdapter,
     EptGatewayClient,
@@ -75,21 +84,35 @@ def _emit_json(value: object) -> None:
 def _adapter_registry() -> AdapterRegistry:
     """Build the adapter registry.
 
-    The EPT adapter is registered only when a private gateway is configured, so a
-    checkout with no gateway credentials cannot accidentally address a real deployment.
+    Every real adapter is registered only when its own lab is actually configured, so a
+    checkout with no credentials cannot accidentally address a real deployment or a real
+    device. A check whose adapter is absent therefore fails loudly at execution rather
+    than being silently skipped.
+
+    The email and chat canaries are separate gateways on separate hosts with separate
+    contracts, so each is configured from its own variables. Either can be present
+    without the other.
     """
 
     registry = AdapterRegistry()
     registry.register(FakeAdapter())
-    gateway = gateway_config_from_environment()
-    if gateway is not None:
-        base_url, token = gateway
+
+    email = gateway_config_from_environment()
+    if email is not None:
         registry.register(
             EptGatewayAdapter(
-                client=EptGatewayClient(base_url=base_url, token=token),
+                client=EptGatewayClient(base_url=email[0], token=email[1]),
                 mailboxes=mailbox_config_from_environment(),
             )
         )
+
+    chat = chat_gateway_config_from_environment()
+    if chat is not None:
+        chat_client = ChatGatewayClient(base_url=chat[0], token=chat[1])
+        numbers = numbers_config_from_environment()
+        registry.register(ChatAppiumAdapter(client=chat_client, numbers=numbers))
+        registry.register(ChatNotificationAdapter(gateway=chat_client, numbers=numbers))
+
     return registry
 
 
@@ -521,7 +544,14 @@ def plan_command(
     required=True,
 )
 @click.option("--subject", required=True, help="Subject ID from the run plan.")
-@click.option("--adapter", default="fake", show_default=True)
+@click.option(
+    "--adapter",
+    default=None,
+    help=(
+        "Force one adapter for every check instead of routing each check to the "
+        "adapter its definition names. Used by the account-free smoke lane."
+    ),
+)
 @click.option(
     "--output-dir",
     type=click.Path(path_type=Path, file_okay=False),
@@ -559,7 +589,16 @@ def execute_command(
         checks = tuple(
             definitions.resolve_check(f"{ref.check_id}@{ref.version}") for ref in run_plan.checks
         )
-        adapter_instance = _adapter_registry().get(adapter)
+        registry = _adapter_registry()
+        # Each check is answered by the adapter its own definition names, so a suite may
+        # mix checks from different adapters. `--adapter` forces one adapter across every
+        # check, which the account-free smoke lane uses to pin the fixture adapter.
+        forced = registry.get(adapter) if adapter is not None else None
+        adapters = (
+            None
+            if forced is not None
+            else {check.check_id: registry.get(check.adapter_id) for check in checks}
+        )
         execution_dir = output_dir / subject / f"{repetition:04d}"
         if execution_dir.exists() and any(execution_dir.iterdir()):
             if not force:
@@ -570,7 +609,8 @@ def execute_command(
                 plan=run_plan,
                 subject=subject_definition,
                 checks=checks,
-                adapter=adapter_instance,
+                adapters=adapters,
+                adapter=forced,
                 execution_dir=execution_dir,
                 repetition=repetition,
             )

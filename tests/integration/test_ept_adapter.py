@@ -14,6 +14,7 @@ import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from uuid import uuid7
 
 import httpx
 import pytest
@@ -24,6 +25,7 @@ from privacy_benchmark.adapters.ept import (
     ObservationChannel,
     ObservationOrigin,
 )
+from privacy_benchmark.harness.context import ExecutionContext
 from privacy_benchmark.harness.execution import manifest_exit_code, run_execution
 from privacy_benchmark.spec.models import (
     CheckDefinition,
@@ -58,12 +60,14 @@ class FakeGateway:
         observations: tuple[dict[str, object], ...] = (),
         delivered: bool = True,
         watchers_healthy: bool = True,
+        exercised: tuple[str, ...] = ("img", "dnsAnchor"),
         poll_interval_seconds: float = 0.02,
         window_seconds: float = DEFAULT_WINDOW_SECONDS,
     ) -> None:
         self.observations = observations
         self.delivered = delivered
         self.watchers_healthy = watchers_healthy
+        self.exercised = exercised
         self.poll_interval_seconds = poll_interval_seconds
         self.window_expires_at = (datetime.now(UTC) + timedelta(seconds=window_seconds)).isoformat()
         self.requests: list[httpx.Request] = []
@@ -91,6 +95,7 @@ class FakeGateway:
                     "delivered_at": DELIVERED if self.delivered else None,
                     "watchers_healthy": self.watchers_healthy,
                     "window_expires_at": self.window_expires_at,
+                    "exercised": list(self.exercised),
                 },
             )
         if request.method == "GET" and request.url.path == "/v1/tests/test.one/observations":
@@ -186,6 +191,22 @@ def _execute(
 @pytest.fixture
 def subject(registry: Registry) -> SubjectDefinition:
     return registry.resolve_subject("fake-client@1.0.0")
+
+
+def _dns_prefetch_check() -> CheckDefinition:
+    return CheckDefinition.model_validate(
+        {
+            "check_id": "email.dns-prefetch",
+            "version": "1.0.0",
+            "title": "DNS and SNI resolution of canary URLs",
+            "description": "d",
+            "channel": "email",
+            "evidence_class": "measured",
+            "adapter_id": "ept",
+            "runner_classes": ["self_hosted_macos"],
+            "threat_models": [{"id": "a", "title": "b", "description": "c"}],
+        }
+    )
 
 
 @pytest.fixture
@@ -427,9 +448,9 @@ class TestAdapterBoundaries:
         check: CheckDefinition,
     ) -> None:
         unsupported = CheckDefinition(
-            check_id="email.dns-prefetch",
+            check_id="email.mime-remote-part",
             version="1.0.0",
-            title="DNS prefetch",
+            title="MIME remote part",
             description="A check the EPT adapter does not implement.",
             channel="email",
             evidence_class="measured",
@@ -439,7 +460,10 @@ class TestAdapterBoundaries:
         )
         gateway = FakeGateway()
         result, _, _ = _execute(
-            plan=_single_check_plan(local_plan, subject, check),
+            # The plan must name the check that is actually executed; per-check adapter
+            # routing resolves the adapter from the plan, so a plan built for a different
+            # check fails finalization instead of silently reusing one adapter.
+            plan=_single_check_plan(local_plan, subject, unsupported),
             subject=subject,
             check=unsupported,
             adapter=gateway.adapter(),
@@ -477,10 +501,46 @@ class TestAdapterBoundaries:
         assert result.error.retryable is True
         assert manifest_exit_code(manifest) == 1
 
+    def test_a_check_the_gateway_never_exercised_is_inconclusive_not_a_pass(
+        self, tmp_path: Path, local_plan: RunPlan, subject: SubjectDefinition
+    ) -> None:
+        """The fabricated-clean-result guard.
+
+        Without the vector requirement, a test that never ran the DNS vector produces an
+        empty observation set, which adjudicates as a client that resolved nothing. That
+        would report every mail client as clean for a probe that offered it nothing.
+        """
+
+        definition = _dns_prefetch_check()
+        outcome = asyncio.run(
+            FakeGateway(exercised=())
+            .adapter()
+            .execute_check(
+                definition,
+                ExecutionContext(
+                    plan=_single_check_plan(local_plan, subject, definition),
+                    subject=subject,
+                    checks=(definition,),
+                    execution_id=uuid7(),
+                    execution_dir=tmp_path / "unexercised",
+                    adapter_id="ept",
+                    repetition=1,
+                    started_at=datetime.now(UTC),
+                ),
+            )
+        )
+        assert outcome.status is ResultStatus.INCONCLUSIVE
+        assert outcome.reason_code == "ept.vector-not-exercised"
+        assert outcome.details["missing_vectors"] == "dnsAnchor"
+
     def test_the_adapter_declares_the_checks_it_can_answer(self) -> None:
         adapter = FakeGateway().adapter()
         assert adapter.adapter_id == "ept"
-        assert adapter.supported_checks == {"email.remote-content"}
+        assert adapter.supported_checks == {
+            "email.remote-content",
+            "email.dns-prefetch",
+            "email.reader-identification",
+        }
 
     def test_every_observation_channel_is_a_real_upstream_mechanism(self) -> None:
         # Upstream ships two watchers plus the canary web server. There is no TCP

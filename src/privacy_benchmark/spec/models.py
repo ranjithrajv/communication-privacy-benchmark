@@ -414,7 +414,11 @@ class ExecutionManifest(StrictModel):
     subject: SubjectDefinition
     execution_mode: ExecutionMode
     github: GitHubProvenance | None = None
-    adapter_id: Identifier
+    #: Every adapter that answered a check in this execution, sorted and de-duplicated.
+    #: A run may mix checks from different adapters, and each ``CheckResult`` already
+    #: names the adapter that produced it, so this is a summary rather than the
+    #: authority on which adapter produced which result.
+    adapter_ids: tuple[Identifier, ...] = Field(min_length=1)
     started_at: UtcDateTime
     completed_at: UtcDateTime
     completion: CompletionState

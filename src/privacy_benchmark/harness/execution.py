@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
 from uuid import UUID, uuid7
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from privacy_benchmark.adapters.base import AdapterEvidence, CheckAdapter
 from privacy_benchmark.harness.context import ExecutionContext
@@ -43,6 +44,21 @@ from privacy_benchmark.spec.serialization import (
 
 logger = logging.getLogger(__name__)
 
+_EXCLUSIVE_ADAPTER_SOURCE = "provide exactly one of 'adapters' or 'adapter'"
+
+
+class PlannedAdapter(BaseModel):
+    """Which adapter answers which check, recorded before execution begins.
+
+    Finalization needs this even for a check that never produced a result, because the
+    error result it writes must still name the adapter that would have answered it.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    check_id: str
+    adapter: AdapterRef
+
 
 class ExecutionState(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -54,8 +70,7 @@ class ExecutionState(BaseModel):
     subject: SubjectDefinition
     execution_mode: ExecutionMode
     github: GitHubProvenance | None = None
-    adapter_id: str
-    adapter_version: str
+    adapters: tuple[PlannedAdapter, ...] = Field(min_length=1)
     started_at: datetime
 
 
@@ -142,11 +157,12 @@ async def _execute_checks(
     subject: SubjectDefinition,
     checks: tuple[CheckDefinition, ...],
     context: ExecutionContext,
-    adapter: CheckAdapter,
+    adapters: Mapping[str, CheckAdapter],
 ) -> list[ResultFileRef]:
     references: list[ResultFileRef] = []
     for check in checks:
         started_at = utc_now()
+        adapter = adapters[check.check_id]
         try:
             outcome = await adapter.execute_check(check, context)
         except Exception as error:
@@ -218,10 +234,37 @@ async def run_execution(
     plan: RunPlan,
     subject: SubjectDefinition,
     checks: tuple[CheckDefinition, ...],
-    adapter: CheckAdapter,
     execution_dir: Path,
     repetition: int,
+    adapters: Mapping[str, CheckAdapter] | None = None,
+    adapter: CheckAdapter | None = None,
 ) -> ExecutionOutcome:
+    """Execute every planned check for one subject repetition.
+
+    Each check is answered by the adapter named in its own ``adapter_id``, so a suite
+    may mix checks from different adapters without the caller repeating itself. Passing
+    ``adapter`` instead forces that one adapter across every check, which is what the
+    account-free harness smoke lane and the tests need. Exactly one of the two is
+    required: silently falling back to a default would let a misconfigured plan report
+    results from an adapter its check never asked for.
+    """
+
+    if adapter is not None:
+        if adapters is not None:
+            raise ValueError(_EXCLUSIVE_ADAPTER_SOURCE)
+        resolved: dict[str, CheckAdapter] = {check.check_id: adapter for check in checks}
+    elif adapters is not None:
+        resolved = dict(adapters)
+    else:
+        raise ValueError(_EXCLUSIVE_ADAPTER_SOURCE)
+    adapter_ids = tuple(sorted({item.adapter_id for item in resolved.values()}))
+    planned_adapters = tuple(
+        PlannedAdapter(
+            check_id=check_id,
+            adapter=AdapterRef(id=item.adapter_id, version=item.version),
+        )
+        for check_id, item in sorted(resolved.items())
+    )
     execution_id = uuid7()
     started_at = utc_now()
     context = ExecutionContext(
@@ -230,7 +273,7 @@ async def run_execution(
         checks=checks,
         execution_id=execution_id,
         execution_dir=execution_dir,
-        adapter_id=adapter.adapter_id,
+        adapter_id=",".join(adapter_ids),
         repetition=repetition,
         started_at=started_at,
     )
@@ -241,8 +284,7 @@ async def run_execution(
         subject=subject,
         execution_mode=plan.execution_mode,
         github=plan.github,
-        adapter_id=adapter.adapter_id,
-        adapter_version=adapter.version,
+        adapters=planned_adapters,
         started_at=started_at,
     )
     write_model_json(execution_dir / "execution-state.json", state)
@@ -252,7 +294,7 @@ async def run_execution(
             subject=subject,
             checks=checks,
             context=context,
-            adapter=adapter,
+            adapters=resolved,
         )
     except Exception:
         logger.exception("Execution failed; finalizing missing checks as error results")
@@ -272,17 +314,19 @@ def finalize_execution(*, execution_dir: Path, plan: RunPlan) -> ExecutionManife
 
     references: list[ResultFileRef] = []
     completed_at = utc_now()
+    adapters_by_check = {item.check_id: item.adapter for item in state.adapters}
     for check_ref in plan.checks:
         relative_path = f"results/{check_ref.check_id}.json"
         result_path = execution_dir / relative_path
         if not result_path.is_file():
+            planned = adapters_by_check[check_ref.check_id]
             result = _error_result(
                 plan=plan,
                 subject=state.subject,
                 check=check_ref,
                 execution_id=state.execution_id,
-                adapter_id=state.adapter_id,
-                adapter_version=state.adapter_version,
+                adapter_id=planned.id,
+                adapter_version=planned.version,
                 started_at=state.started_at,
                 completed_at=completed_at,
                 error=ErrorInfo(
@@ -320,7 +364,7 @@ def finalize_execution(*, execution_dir: Path, plan: RunPlan) -> ExecutionManife
         subject=state.subject,
         execution_mode=state.execution_mode,
         github=state.github,
-        adapter_id=state.adapter_id,
+        adapter_ids=tuple(sorted({item.adapter.id for item in state.adapters})),
         started_at=state.started_at,
         completed_at=completed_at,
         completion=CompletionState.COMPLETE,
