@@ -16,7 +16,7 @@ this versioned surface; nothing else about the upstream deployment is contractua
 | Route | Purpose |
 |---|---|
 | `POST /v1/tests` | Allocate a test for a synthetic mailbox. Returns `test_id`, `probe_id`, `expires_at`. |
-| `GET /v1/tests/{id}/state` | Report `delivered_at`, `opened_at`, `watchers_healthy`, `window_expires_at`. |
+| `GET /v1/tests/{id}/state` | Report `delivered_at`, `watchers_healthy`, `window_expires_at`. |
 | `GET /v1/tests/{id}/observations` | Return typed observations correlated by `probe_id`. |
 
 Requests carry `Authorization: Bearer <token>`. Redirects are not followed.
@@ -29,7 +29,11 @@ positively confirmed all three of:
 
 - **delivery** — the message reached the synthetic mailbox;
 - **an open** — the client actually displayed it, so remote-content behaviour was
-  exercised; and
+  exercised. This precondition is the one the gateway cannot supply: upstream EPT sets
+  `Tests.accessed` on send and on the first callback of any kind, so it is not an open
+  confirmation. The harness asserts the open through an `open_observer` instead, and an
+  adapter without one reports `inconclusive` rather than claiming a pass it did not
+  earn. See `UPSTREAM_FINDINGS.md`; and
 - **watcher health** — the DNS, SNI, TCP, and HTTP watchers were up, so an absence of
   traffic is evidence rather than an artefact.
 

@@ -115,7 +115,7 @@ authentication_method = "oauth2_with_app_password"
 recovery_process = "UNWRITTEN. Record the recovery address, the recovery-code storage location, and the re-consent path for OAuth scopes. Note that revoking and re-granting app passwords changes the account configuration under test."
 recovery_owner = "unassigned"
 recovery_tested = false
-notes = "One account is shared by the Apple Mail, Thunderbird, and FairEmail subjects so the client is the only variable. Sharing is deliberate and must be stated in any published row."
+notes = "One account is shared by the Apple Mail and Thunderbird subjects so the client is the only variable. Sharing is deliberate and must be stated in any published row. A third subject reading this slot over IMAP is a roadmap target, not a subject that exists; adding one makes this slot the shared identity of three subjects and this note must be re-read before that subject is measured."
 
 [[terms_reviews]]
 subject_id = "apple-mail-gmail-consumer"

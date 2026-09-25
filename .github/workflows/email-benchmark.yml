@@ -3,8 +3,9 @@ name: Email benchmark
 # Protected canonical measurement lane. This workflow drives real synthetic mail
 # accounts on physical Macs, so it is deliberately NOT triggered by pull requests:
 # fork code must never reach a device or account lane. It runs only when a maintainer
-# dispatches it, on its weekly schedule, or when the full-benchmark orchestrator calls
-# it.
+# dispatches it or on its weekly schedule. It also accepts `workflow_call` for a future
+# full-benchmark orchestrator, which is specified in GITHUB_ACTIONS_ARCHITECTURE.md but
+# not implemented.
 #
 # Until the operational policy is active this workflow is expected to fail at the
 # `plan` job, which is the gate. `pt-bench plan` refuses a canonical run for any
