@@ -231,9 +231,17 @@ class TestEvidenceIntegrity:
     """The checks that stand between a doctored payload and a published result."""
 
     def _evidence_paths(self, execution_dir: Path) -> tuple[Path, Path]:
-        record_path = next((execution_dir / "evidence").glob("*.json"))
-        evidence_id = record_path.stem
-        payload = next((execution_dir / "evidence").glob(f"{evidence_id}.payload*"))
+        evidence_dir = execution_dir / "evidence"
+        # The record and its payload both end in `.json`, so a bare glob("*.json") is
+        # order-dependent: on some filesystems it yields the payload first, whose stem
+        # would then be searched for "<id>.payload.payload*" and find nothing. Select
+        # the record by name so the choice does not depend on directory order.
+        record_path = next(
+            path
+            for path in sorted(evidence_dir.glob("*.json"))
+            if not path.name.endswith(".payload.json")
+        )
+        payload = next(evidence_dir.glob(f"{record_path.stem}.payload*"))
         return record_path, payload
 
     def test_evidence_from_another_execution_is_refused(
