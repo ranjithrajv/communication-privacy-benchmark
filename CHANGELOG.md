@@ -34,42 +34,17 @@ All notable changes to this project are documented in this file. The format foll
   on history restore instead of replaying a stored snapshot, so a fragment carrying only a diff
   would render an empty page on back navigation.
 
-### Changed
-
-- The preflight observation now reaches the run record. `ExecutionManifest` carries
-  the `SubjectObservation` that was active for an execution, and `pt-bench execute`
-  accepts `--observation`. Preflight was previously standalone: a workflow could run it
-  and drop the artifact, but no result named the build it was measured on, which is the
-  one thing a longitudinal comparison needs. The observation contracts moved from
-  `harness/preflight.py` into `spec/models.py` so the observation is an ordinary public
-  contract and the circular import the layering had required is gone.
-
-- Aggregation now validates the repetition axis: a subject-and-repetition position must
-  be claimed by exactly one execution, and a repetition outside the planned range is
-  refused. Previously two executions claiming the same repetition silently overwrote
-  each other's results while `result_count` counted both, so a bundle could report
-  `complete` for a repetition that was never measured. The redundant execution-count
-  check was removed because these two guards subsume it.
-- The gateway contract no longer claims an observation channel or signal that upstream
-  cannot produce. There is no TCP channel (preconnect arrives via SNI) and no MIME
-  channel, and the open assertion moved from the gateway to the harness, because EPT has
-  no open signal. An adapter constructed without an `open_observer` always reports
-  `inconclusive`.
-- Replaced the separate `pip-audit` development dependency with uv's built-in
-  `uv audit --locked --preview-features audit-command` workflow.
-- Pinned the uv CLI to 0.12.18 in every workflow.
-
-### Added
 
 - Tests that the publication gate *opens*. The checked-in policy has
-  `publication.target = "none"` and every provider-terms review is pending, so the only
-  path reachable here was the refusal. The first time someone selects a target and
-  approves a review, the succeeding path would run for the first time in production, on
+  `publication.target = "github_pages"` and every provider-terms review is pending, so the
+  only path reachable here was the refusal. The first time someone clears a review, the
+  succeeding path would run for the first time in production, on
   a real weekly run, with a real account behind it. It is now exercised in CI against a
   hand-built satisfying policy that does not weaken the real one.
-- Tests that a partly-implemented suite degrades honestly. Six of the ten declared
-  checks have no adapter on purpose, each waiting on infrastructure or a licence review.
-  The risk is not that they stay unimplemented but that a partial suite quietly
+- Tests that a partly-implemented suite degrades honestly. One of the ten declared
+  checks has no adapter on purpose, waiting on a second canary host, and the fixture
+  check is non-canonical by construction. The risk is not that they stay unimplemented but
+  that a partial suite quietly
   under-reports coverage, so an unimplemented check is now proven to surface as
   `unsupported` through to the roll-up verdict, never as a pass, a missing row, or a
   dropped count.
@@ -160,6 +135,63 @@ All notable changes to this project are documented in this file. The format foll
 - First real email, webmail, or messaging subject adapter.
 - Pinned Email Privacy Tester gateway and lab deployment.
 - Protected physical-device or regional measurement infrastructure.
+
+### Changed
+
+- The preflight observation now reaches the run record. `ExecutionManifest` carries
+  the `SubjectObservation` that was active for an execution, and `pt-bench execute`
+  accepts `--observation`. Preflight was previously standalone: a workflow could run it
+  and drop the artifact, but no result named the build it was measured on, which is the
+  one thing a longitudinal comparison needs. The observation contracts moved from
+  `harness/preflight.py` into `spec/models.py` so the observation is an ordinary public
+  contract and the circular import the layering had required is gone.
+
+- Aggregation now validates the repetition axis: a subject-and-repetition position must
+  be claimed by exactly one execution, and a repetition outside the planned range is
+  refused. Previously two executions claiming the same repetition silently overwrote
+  each other's results while `result_count` counted both, so a bundle could report
+  `complete` for a repetition that was never measured. The redundant execution-count
+  check was removed because these two guards subsume it.
+- The gateway contract no longer claims an observation channel or signal that upstream
+  cannot produce. There is no TCP channel (preconnect arrives via SNI) and no MIME
+  channel, and the open assertion moved from the gateway to the harness, because EPT has
+  no open signal. An adapter constructed without an `open_observer` always reports
+  `inconclusive`.
+- Replaced the separate `pip-audit` development dependency with uv's built-in
+  `uv audit --locked --preview-features audit-command` workflow.
+- Pinned the uv CLI to 0.12.18 in every workflow.
+
+### Fixed
+
+- The source distribution now includes `infra/`. Three source modules and two test
+  modules cite `infra/ept/UPSTREAM_FINDINGS.md` and `infra/chat/README.md` by path as the
+  evidence for the adapter design, so excluding the directory left dangling citations for
+  anyone installing from an sdist. The build also stopped listing a `/tools` directory
+  that does not exist; hatchling ignored it silently, so the entry was a claim about the
+  package that was never true.
+- `infra/ept/README.md` no longer advertises an `opened_at` field on the gateway state
+  route. `UPSTREAM_FINDINGS.md` establishes that upstream EPT sets `Tests.accessed` on
+  send and on the first callback of any kind, so it is not an open confirmation and a
+  contract requiring it is unsatisfiable. The route now lists only the fields the gateway
+  can actually supply, and the "an open" precondition says where the open really comes
+  from.
+- `operations/1.0.0/operations.toml` no longer names a FairEmail subject in the Gmail
+  account procedure. No such subject exists, and a policy file is the one artifact a
+  reviewer reads to decide what is actually being measured. The note now describes the
+  two subjects that share the slot and records that a third is a roadmap target.
+- `GITHUB_ACTIONS_ARCHITECTURE.md` separates the nine checked-in workflows from the two it
+  specifies but has not implemented (`full-benchmark.yml`, `maintain-subjects.yml`), and
+  corrects the reusable workflow's name to the one on disk. The email lane's header
+  comment no longer implies an orchestrator that calls it exists.
+- `README.md` documents `preflight`, `publish`, and `verify-shade`, which were reachable
+  from the CLI but absent from the command list. It also states their fail-closed exit
+  codes, which are the reason to reach for them rather than a detail to discover later.
+- Removed an inert `ruff` per-file ignore for `S101`. The `S` (flake8-bandit) rules are not
+  in the project's `select` list, so the ignore suppressed nothing while appearing to
+  document that asserts are permitted in tests.
+- This entry's own section ordering: the `Unreleased` block had two `### Added` headings
+  with a `### Changed` between them, and described a `publication.target` and an
+  unimplemented-check count that were both out of date.
 
 ## [0.1.0] - 2026-09-25
 

@@ -66,7 +66,10 @@ include = [
   "/operations",
   "/schemas",
   "/tests",
-  "/tools",
+  # Source modules and tests cite infra/ept/UPSTREAM_FINDINGS.md and
+  # infra/chat/README.md by path as the evidence for the adapter design. Excluding
+  # them leaves dangling citations for anyone who installs from an sdist.
+  "/infra",
   "/README.md",
   "/CHANGELOG.md",
   "/LICENSE",
@@ -135,6 +138,3 @@ select = [
 ignore = [
   "PT011",
 ]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["S101"]

@@ -206,7 +206,7 @@ A GitHub Actions step may execute several related checks for one subject when th
 
 ## 4. Proposed Actions topology
 
-Recommended checked-in workflows:
+Checked in today:
 
 ```text
 .github/workflows/
@@ -214,9 +214,19 @@ Recommended checked-in workflows:
 ├── adapter-smoke.yml            # fake/local canary, no real accounts
 ├── email-benchmark.yml          # protected manual + scheduled entry point
 ├── chat-benchmark.yml           # protected manual + scheduled entry point
+├── _publish-benchmark.yml       # reusable aggregation and publication workflow
+├── publish-site.yml             # renders a bundle as the GitHub Page
+├── release.yml                  # tagged package release, SBOM, attestation
+├── codeql.yml                   # security scanning
+└── workflow-security.yml        # actionlint + zizmor over the workflows themselves
+```
+
+Specified below but **not implemented**. They are design targets for a later phase, not
+descriptions of the current tree:
+
+```text
 ├── full-benchmark.yml           # optional orchestration for a complete weekly run
-├── maintain-subjects.yml        # controlled app/version maintenance
-└── _aggregate-publish.yml       # reusable aggregation and publication workflow
+└── maintain-subjects.yml        # controlled app/version maintenance
 ```
 
 The leading underscore is a naming convention, not a GitHub feature. It marks reusable implementation workflows. Entry-point workflows remain visible in the Actions tab.
@@ -290,7 +300,8 @@ It uses a fake client and local canary fixture. It verifies that:
 
 - Manual dispatch with a checked-in suite/subject selection
 - Weekly schedule at an off-hour UTC minute
-- Called by `full-benchmark.yml`
+- Called by `full-benchmark.yml` (not implemented; the workflow already accepts
+  `workflow_call` so a future orchestrator needs no change here)
 
 **Suggested initial schedule:** weekly rather than daily. Increase frequency only after we understand account lock rates, provider throttling, and meaningful temporal variance.
 
@@ -346,7 +357,7 @@ prepare -> close job -> observation window outside Actions -> collect -> aggrega
 
 A GitHub Actions job should not be used as a 12- or 24-hour timer. Persistent orchestration outside Actions should schedule and trigger `collect`, or a dedicated collector service can finalize the run directly.
 
-### 4.5 `maintain-subjects.yml`
+### 4.5 `maintain-subjects.yml` (specified, not implemented)
 
 For communication apps, blindly updating every application immediately before a test can create uncontrolled state changes.
 

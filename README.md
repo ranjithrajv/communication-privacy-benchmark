@@ -129,14 +129,24 @@ pt-bench operations validate
 pt-bench schemas export
 pt-bench schemas validate PATH...
 pt-bench plan --suite ... --output ... [--allow-unapproved-subjects]
-pt-bench execute --plan ... --subject ... --adapter ... --output-dir ...
+pt-bench preflight --subject ... --output ... [--app-bundle ... | --adb-serial ...]
+pt-bench verify-shade --serial ... --package ...
+pt-bench execute --plan ... --subject ... --adapter ... --output-dir ... [--observation ...]
 pt-bench finalize --plan ... --execution-dir ...
 pt-bench aggregate --plan ... --executions ... --output ...
 pt-bench rollup --bundle ... --output ...
 pt-bench compare --baseline ... --candidate ... --output ... [--fail-on-regression]
 pt-bench report --bundle ... --output ... [--stdout]
 pt-bench site --bundle ... --output-dir ... [--root .]
+pt-bench publish --bundle ... --staging ...
 ```
+
+`preflight` observes the runtime identity a measurement will be attributed to — the
+app version, build, artifact hash, device model, and vantage that a subject deliberately
+leaves unset. `verify-shade` is a standalone capability probe that asks whether this
+harness can read a device's notification shade at all, before a lane is built on that
+assumption. Both fail closed: `preflight` exits `2` when the observation blocks a
+measurement, and `verify-shade` exits `2` when the shade is unreadable.
 
 ## The published page
 
