@@ -50,9 +50,13 @@ jobs:
         # Exit 2 means the policy is valid but canonical measurement is still blocked,
         # which is the expected state until Phase 1 provisions a lane. Exit 1 means the
         # policy is missing or invalid, and must fail the run.
+        #
+        # The `|| status=$?` form is load-bearing. GitHub runs steps under `bash -e`,
+        # so a bare `cmd; status=$?` aborts on the non-zero exit before the assignment
+        # is ever reached. Do not rewrite this as a plain two-line capture.
         run: |
-          uv run --locked pt-bench operations validate
-          status=$?
+          status=0
+          uv run --locked pt-bench operations validate || status=$?
           if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
             echo "operations policy is invalid" >&2
             exit "$status"
