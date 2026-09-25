@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from privacy_benchmark.spec.operations import OperationsRegistry
 from privacy_benchmark.spec.registry import Registry, RegistryValidationError, parse_reference
 
 
@@ -103,6 +106,11 @@ CHAT_SUBJECTS = {
 }
 
 
+@pytest.fixture
+def operations(repository_root: Path) -> OperationsRegistry:
+    return OperationsRegistry.load(repository_root)
+
+
 def test_chat_subjects_declare_their_measured_lane(registry: Registry) -> None:
     for subject_id in CHAT_SUBJECTS:
         subject = registry.resolve_subject(f"{subject_id}@1.0.0")
@@ -111,7 +119,48 @@ def test_chat_subjects_declare_their_measured_lane(registry: Registry) -> None:
         assert subject.account.synthetic is True
         assert subject.account.authentication_method == "phone_number_sms"
         assert subject.configuration.profile == "default"
-        assert subject.network_vantage.country_code == "ZZ"
+
+
+def measured_subject_keys(registry: Registry) -> list[tuple[str, str]]:
+    """Subjects that appear in a product lane, as opposed to the harness fixture.
+
+    The fake client is only ever driven by the harness smoke suite, and its
+    ``country_code`` is deliberately the unassigned placeholder because it is a loopback
+    CI fixture rather than a measurement vantage. Every subject that will actually be
+    published must come from the reference vantage instead.
+    """
+
+    keys: set[tuple[str, str]] = set()
+    for suite in registry.suites.values():
+        if all(registry.resolve_check(ref).channel.value == "harness" for ref in suite.checks):
+            continue
+        keys.update(parse_reference(ref) for ref in suite.subjects)
+    return sorted(keys)
+
+
+def test_every_measured_subject_uses_the_reference_vantage_country(
+    registry: Registry,
+    operations: OperationsRegistry,
+) -> None:
+    """A subject on a different country than the reference vantage is not comparable.
+
+    A chat row and an email row only mean something together if both were measured from
+    the same region, so the country is pinned to the policy rather than chosen per
+    subject. spec/operations.py enforces this for the reference vantage; NetworkVantage
+    carries no such guard, so a subject could otherwise validate while naming no
+    country.
+    """
+
+    reference = operations.policy.reference_vantage.country_code
+    for subject_id, subject_version in measured_subject_keys(registry):
+        vantage = registry.subjects[(subject_id, subject_version)].network_vantage
+        assert vantage.country_code == reference, (
+            f"{subject_id}@{subject_version} measures from {vantage.country_code} but the "
+            f"reference vantage is {reference}"
+        )
+        assert vantage.country_code != "ZZ", (
+            f"{subject_id}@{subject_version} uses the unassigned 'ZZ' placeholder"
+        )
 
 
 def test_chat_subjects_do_not_pin_runtime_derived_identity(registry: Registry) -> None:

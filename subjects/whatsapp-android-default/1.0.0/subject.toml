@@ -43,6 +43,6 @@ value = "enabled"
 
 [network_vantage]
 vantage_id = "chat-lane-unselected"
-country_code = "ZZ"
-network_type = "unselected"
-notes = "Measurement region is not selected yet. These apps vary by region (relay allocation, CDN edge, and data residency), so country_code is deliberately unassigned and must be pinned by device-preflight before a canonical run."
+country_code = "DE"
+network_type = "residential-unselected"
+notes = "Measurement provider and city are not selected yet, but the country code mirrors the reference vantage in operations/1.0.0/operations.toml rather than the 'ZZ' unassigned placeholder, which spec/operations.py rejects for a reference vantage. WhatsApp fronts its service with region-dependent edge infrastructure and treats datacenter addresses differently, so the vantage is part of what is under test. Keeping the same country as the email lane is what makes a chat row and an email row comparable at all; the provider, ASN, and city must be pinned before a canonical run."
