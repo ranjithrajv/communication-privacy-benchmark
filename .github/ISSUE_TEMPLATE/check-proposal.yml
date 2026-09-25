@@ -1,0 +1,83 @@
+name: Check proposal
+description: Propose a new behavioral, static, documented, or human-review check.
+labels:
+  - check-proposal
+body:
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: What privacy property does this check measure or evaluate?
+    validations:
+      required: true
+  - type: textarea
+    id: threat
+    attributes:
+      label: Threat model
+      description: Which adversary, observer, or service provider is in scope?
+    validations:
+      required: true
+  - type: textarea
+    id: procedure
+    attributes:
+      label: Procedure
+      description: Describe the exact synthetic interaction and observation window.
+    validations:
+      required: true
+  - type: dropdown
+    id: evidence_class
+    attributes:
+      label: Evidence class
+      options:
+        - measured
+        - static
+        - documented
+        - human_review
+    validations:
+      required: true
+  - type: dropdown
+    id: outcome_states
+    attributes:
+      label: Expected outcome states
+      description: Explain when the result is pass, fail, inconclusive, unsupported, or not applicable.
+      options:
+        - pass/fail with a measurable criterion
+        - inconclusive/unsupported only
+        - static or documented evidence
+        - human review required
+    validations:
+      required: true
+  - type: textarea
+    id: subjects
+    attributes:
+      label: Supported subject configurations
+      description: Identify client, service, account type, platform, and runner requirements.
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety, terms, and anti-abuse review
+      description: Explain use of synthetic accounts, rate limits, provider terms, and prohibited techniques.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Raw and sanitized evidence
+      description: List expected evidence, retention, redaction, and hashing requirements.
+    validations:
+      required: true
+  - type: checkboxes
+    id: criteria
+    attributes:
+      label: Proposal criteria
+      options:
+        - label: The check does not produce a single overall privacy score.
+          required: true
+        - label: The check is not implemented by porting or scraping Email Privacy Tester.
+          required: true
+        - label: The proposal has a GitHub Actions execution path.
+          required: true
+        - label: Historical results will be versioned, never rewritten.
+          required: true

@@ -1,0 +1,43 @@
+name: Bug report
+description: Report a harness, schema, adapter, documentation, or workflow defect.
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include credentials, real contact data, private messages, phone numbers,
+        email addresses, browser profiles, or raw packet captures.
+  - type: input
+    id: version
+    attributes:
+      label: Package or commit version
+      placeholder: pt-bench 0.1.0 or commit SHA
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Minimal commands or workflow link that reproduce the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Account and evidence safety
+      description: Confirm the reproduction uses only synthetic/fixture data.
+    validations:
+      required: true
