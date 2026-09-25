@@ -447,13 +447,13 @@ class TestAdapterBoundaries:
         subject: SubjectDefinition,
         check: CheckDefinition,
     ) -> None:
+        # Every email check now has an adapter, so the unsupported case is expressed with
+        # an id that does not exist rather than by borrowing a real check that would stop
+        # being unsupported the next time one is wired.
         unsupported = CheckDefinition(
-            # `referrer-disclosure` is the one email check the adapter still cannot
-            # answer: upstream `callback.js` records only user-agent and
-            # X-Forwarded-For, so the Referer header this check needs is never captured.
-            check_id="email.referrer-disclosure",
+            check_id="email.not-a-real-check",
             version="1.0.0",
-            title="Referrer and identifier disclosure",
+            title="A check the EPT adapter does not implement",
             description="A check the EPT adapter does not implement.",
             channel="email",
             evidence_class="measured",
@@ -546,6 +546,7 @@ class TestAdapterBoundaries:
             "email.mime-remote-part",
             "email.list-unsubscribe-fetch",
             "email.background-fetch",
+            "email.referrer-disclosure",
         }
 
     def test_every_observation_channel_is_a_real_upstream_mechanism(self) -> None:

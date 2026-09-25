@@ -8,6 +8,28 @@ All notable changes to this project are documented in this file. The format foll
 
 ### Added
 
+- `email.referrer-disclosure` is answered by the EPT adapter, which required extending
+  the gateway contract rather than the adapter alone. `GatewayTestState` gains
+  `referer_captured` and `third_party_hosts`, and `GatewayObservation` gains a declared
+  `referrer` field.
+
+  The capability flag is the part that matters. A gateway that does not capture the header
+  returns *exactly* the observations a client that leaked nothing would produce, so without
+  an explicit declaration the check would report every client as clean — the one failure
+  mode this benchmark exists to prevent. Upstream cannot supply the header at all, so the
+  private gateway must be changed to send it and to declare `referer_captured`; until it is,
+  every run reports `inconclusive` rather than a clean result.
+
+  `referrer` is a declared field rather than a key in the open `detail` map, because a key
+  spelled differently is absent rather than wrong, and `extra="forbid"` means a gateway
+  sending it to an adapter that does not declare it fails loudly.
+
+  A clean result is `partial` unless the test also ran a third-party canary host. The
+  declared threat is a host the reader did not choose to visit, and a run that watched only
+  the tracking host never exercised it, so reporting `pass` would claim coverage that was
+  not measured. A `Referer` reaching the tracking host and one reaching another host are
+  reported under different reason codes, because they are disclosures to different parties.
+
 - The webmail lane: a `WebmailAutomation` recipe on the subject definition, a
   `webmail-playwright` adapter, and the `webmail.remote-content` check. The provider is
   carried as **data** — a recipe of selectors on the subject — rather than compiled into
