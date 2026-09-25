@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid7
 
@@ -13,6 +14,7 @@ from privacy_benchmark.harness.analysis import (
     build_check_rollup,
     classify_outcome,
     compare_rollups,
+    render_rollup_matrix,
     wilson_interval,
 )
 from privacy_benchmark.spec.models import (
@@ -485,3 +487,145 @@ class TestRollupContract:
                 repetitions=2,
                 subjects=(SubjectRollup(subject=SUBJECT, checks=(check,)),),
             )
+
+
+#: The chat pilot's three subjects, in the order the suite declares them. This order is
+#: deliberately not alphabetical, which is what makes the column-order contract testable.
+_MATRIX_SUBJECTS = (
+    ("signal-android-default", "Signal Android"),
+    ("whatsapp-android-default", "WhatsApp Messenger"),
+    ("telegram-android-default", "Telegram"),
+)
+_MATRIX_CHECKS = ("chat.link-preview-fetch", "chat.notification-preview")
+
+
+def _matrix_rollup(
+    statuses: Mapping[tuple[str, str], tuple[ResultStatus, ...]],
+    *,
+    repetitions: int = 1,
+    with_client_names: bool = True,
+    skip: tuple[tuple[str, str], ...] = (),
+) -> RunRollup:
+    """A three-subject, two-check rollup: the shape the column view exists to show."""
+
+    return RunRollup(
+        rollup_id=uuid7(),
+        bundle_id=uuid7(),
+        suite_id="chat.pilot",
+        suite_version="1.0.0",
+        plan_id=uuid7(),
+        created_at=LATER,
+        bundle_created_at=EARLIER,
+        bundle_completion=CompletionState.COMPLETE,
+        repetitions=repetitions,
+        subjects=tuple(
+            SubjectRollup(
+                subject=SubjectRef(subject_id=subject_id, subject_version="1.0.0"),
+                client_name=name if with_client_names else None,
+                client_version="1.0.0",
+                checks=tuple(
+                    _check_rollup(
+                        *statuses[(check_id, subject_id)],
+                        check=CheckRef(check_id=check_id, version="1.0.0"),
+                        subject=SubjectRef(subject_id=subject_id, subject_version="1.0.0"),
+                        expected=repetitions,
+                    )
+                    for check_id in _MATRIX_CHECKS
+                    if (check_id, subject_id) not in skip
+                ),
+            )
+            for subject_id, name in _MATRIX_SUBJECTS
+        ),
+    )
+
+
+class TestRollupMatrix:
+    """The check-by-subject column view."""
+
+    def test_subjects_are_columns_in_declared_order(self) -> None:
+        # Rows are checks and columns are subjects, not the other way round. The suite
+        # declares Signal, WhatsApp, Telegram, which differs from the order a reader
+        # would get by sorting, so preserving declaration order is observable here.
+        table = render_rollup_matrix(
+            _matrix_rollup(
+                {
+                    (check_id, subject_id): (ResultStatus.PASS,)
+                    for check_id in _MATRIX_CHECKS
+                    for subject_id, _ in _MATRIX_SUBJECTS
+                }
+            )
+        )
+        header = table.splitlines()[0]
+
+        assert header.split() == [
+            "check",
+            "Signal",
+            "Android",
+            "WhatsApp",
+            "Messenger",
+            "Telegram",
+        ]
+        assert [line.split()[0] for line in table.splitlines()[1:]] == list(_MATRIX_CHECKS)
+
+    def test_each_cell_reports_its_own_subject_outcome(self) -> None:
+        table = render_rollup_matrix(
+            _matrix_rollup(
+                {
+                    ("chat.link-preview-fetch", "signal-android-default"): (ResultStatus.PASS,),
+                    ("chat.link-preview-fetch", "whatsapp-android-default"): (ResultStatus.FAIL,),
+                    ("chat.link-preview-fetch", "telegram-android-default"): (ResultStatus.FAIL,),
+                    ("chat.notification-preview", "signal-android-default"): (ResultStatus.PASS,),
+                    ("chat.notification-preview", "whatsapp-android-default"): (ResultStatus.PASS,),
+                    ("chat.notification-preview", "telegram-android-default"): (ResultStatus.PASS,),
+                }
+            )
+        )
+        rows = table.splitlines()[1:]
+
+        # A pass on Signal and a fail on the other two must land in the same row,
+        # which only holds if the subject axis is transposed correctly.
+        assert rows[0].count("pass") == 1
+        assert rows[0].count("fail") == 2
+        assert rows[1].count("pass") == 3
+
+    def test_a_pass_rate_appears_only_when_the_check_repeated(self) -> None:
+        statuses = {
+            (check_id, subject_id): (ResultStatus.PASS, ResultStatus.FAIL)
+            for check_id in _MATRIX_CHECKS
+            for subject_id, _ in _MATRIX_SUBJECTS
+        }
+        repeated = render_rollup_matrix(_matrix_rollup(statuses, repetitions=2))
+        once = render_rollup_matrix(_matrix_rollup(statuses, repetitions=1))
+
+        assert "50%" in repeated
+        assert "%" not in once
+
+    def test_a_column_header_falls_back_to_the_subject_id(self) -> None:
+        table = render_rollup_matrix(
+            _matrix_rollup(
+                {
+                    (check_id, subject_id): (ResultStatus.PASS,)
+                    for check_id in _MATRIX_CHECKS
+                    for subject_id, _ in _MATRIX_SUBJECTS
+                },
+                with_client_names=False,
+            )
+        )
+
+        assert "signal-android-default" in table.splitlines()[0]
+
+    def test_an_absent_check_shows_a_placeholder_rather_than_shifting_the_row(self) -> None:
+        table = render_rollup_matrix(
+            _matrix_rollup(
+                {
+                    (check_id, subject_id): (ResultStatus.PASS,)
+                    for check_id in _MATRIX_CHECKS
+                    for subject_id, _ in _MATRIX_SUBJECTS
+                },
+                skip=(("chat.notification-preview", "telegram-android-default"),),
+            )
+        )
+        rows = table.splitlines()[1:]
+
+        assert len(rows) == 2
+        assert "—" in rows[1]

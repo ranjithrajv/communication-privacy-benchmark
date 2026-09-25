@@ -498,6 +498,10 @@ class CheckRollup(StrictModel):
 
 class SubjectRollup(StrictModel):
     subject: SubjectRef
+    #: Carried so a published rollup names the product each column represents without
+    #: the reader having to resolve the subject registry. ``client_version`` is held for
+    #: the same reason. Both stay ``None`` when no execution supplied a definition.
+    client_name: str | None = Field(default=None, min_length=1, max_length=200)
     client_version: str | None = Field(default=None, min_length=1, max_length=128)
     platform: PlatformDefinition | None = None
     checks: tuple[CheckRollup, ...] = Field(min_length=1)

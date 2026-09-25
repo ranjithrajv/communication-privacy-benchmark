@@ -312,6 +312,20 @@
           "title": "Checks",
           "type": "array"
         },
+        "client_name": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Name"
+        },
         "client_version": {
           "anyOf": [
             {

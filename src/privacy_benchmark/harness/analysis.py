@@ -231,6 +231,7 @@ def rollup_bundle(bundle: BundleAnalysis) -> RunRollup:
         subject_rollups.append(
             SubjectRollup(
                 subject=subject_ref,
+                client_name=definition.client.name if definition else None,
                 client_version=definition.client.version if definition else None,
                 platform=definition.platform if definition else None,
                 checks=tuple(
@@ -391,6 +392,70 @@ def summarize_rollup(rollup: RunRollup) -> dict[str, int]:
         for check in subject.checks:
             counts[check.outcome] += 1
     return {outcome.value: count for outcome, count in counts.items()}
+
+
+#: Rendered in a cell when a planned check has no rollup for that subject.
+_MISSING_CELL = "—"
+
+
+def _subject_label(subject: SubjectRollup) -> str:
+    """Name a subject for a column header, falling back to its registry identifier."""
+
+    return subject.client_name or subject.subject.subject_id
+
+
+def _matrix_cell(check: CheckRollup, repetitions: int) -> str:
+    """Render one check/subject intersection.
+
+    The outcome is the cell's primary content. A pass rate is appended only when the
+    plan actually repeated the check and the sample established a decisive rate, so a
+    single-repetition run reads as a plain outcome rather than a misleading 100%.
+    """
+
+    if repetitions > 1 and check.pass_rate is not None:
+        return f"{check.outcome.value} {round(check.pass_rate * 100)}%"
+    return check.outcome.value
+
+
+def render_rollup_matrix(rollup: RunRollup) -> str:
+    """Render the rollup as a check-by-subject table: rows are checks, columns subjects.
+
+    This is the transpose of :class:`RunRollup`, which stores one entry per subject.
+    Subjects keep the plan's declared order rather than being sorted, so a suite that
+    declares Signal, WhatsApp, then Telegram renders in that order. Subject order is
+    reporting layout only and never implies a ranking; the table states outcomes per
+    check and does not collapse them into a score.
+    """
+
+    check_order: list[str] = []
+    cells: dict[tuple[str, str], str] = {}
+    for subject in rollup.subjects:
+        subject_id = subject.subject.subject_id
+        for check in subject.checks:
+            check_id = check.check.check_id
+            if check_id not in check_order:
+                check_order.append(check_id)
+            cells[(check_id, subject_id)] = _matrix_cell(check, rollup.repetitions)
+
+    headers = ["check", *(_subject_label(subject) for subject in rollup.subjects)]
+    rows = [
+        [
+            check_id,
+            *(
+                cells.get((check_id, subject.subject.subject_id), _MISSING_CELL)
+                for subject in rollup.subjects
+            ),
+        ]
+        for check_id in check_order
+    ]
+    widths = [max(len(cell) for cell in column) for column in zip(headers, *rows, strict=True)]
+
+    def render_row(cells_in_row: list[str]) -> str:
+        return "  ".join(
+            cell.ljust(width) for cell, width in zip(cells_in_row, widths, strict=True)
+        ).rstrip()
+
+    return "\n".join([render_row(headers), *(render_row(row) for row in rows)])
 
 
 def _reject_output_inside_bundle(output: Path, bundle: Path) -> None:

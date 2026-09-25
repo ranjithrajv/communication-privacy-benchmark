@@ -21,6 +21,7 @@ from privacy_benchmark.adapters.ept import (
 from privacy_benchmark.adapters.fake import FakeAdapter
 from privacy_benchmark.harness.aggregation import aggregate_run
 from privacy_benchmark.harness.analysis import (
+    render_rollup_matrix,
     summarize_rollup,
     write_comparison,
     write_rollup,
@@ -594,23 +595,32 @@ def aggregate_command(*, plan: Path, executions: Path, output: Path, force: bool
     required=True,
     help="Where to write the rollup. Must be outside the bundle.",
 )
-def rollup_command(*, bundle: Path, output: Path) -> None:
+@click.option(
+    "--table",
+    "as_table",
+    is_flag=True,
+    help="Print a check-by-subject matrix instead of the JSON summary.",
+)
+def rollup_command(*, bundle: Path, output: Path, as_table: bool) -> None:
     """Summarize how stable each per-check outcome was across repetitions."""
 
     try:
         rollup = write_rollup(bundle, output)
     except Exception as error:
         raise click.ClickException(str(error)) from error
-    _emit_json(
-        {
-            "output": str(output),
-            "rollup_id": str(rollup.rollup_id),
-            "bundle_id": str(rollup.bundle_id),
-            "bundle_completion": rollup.bundle_completion,
-            "repetitions": rollup.repetitions,
-            "outcomes": summarize_rollup(rollup),
-        }
-    )
+    if as_table:
+        click.echo(render_rollup_matrix(rollup))
+    else:
+        _emit_json(
+            {
+                "output": str(output),
+                "rollup_id": str(rollup.rollup_id),
+                "bundle_id": str(rollup.bundle_id),
+                "bundle_completion": rollup.bundle_completion,
+                "repetitions": rollup.repetitions,
+                "outcomes": summarize_rollup(rollup),
+            }
+        )
     if rollup.bundle_completion is not CompletionState.COMPLETE:
         raise click.exceptions.Exit(2)
 
