@@ -15,6 +15,7 @@ import pytest
 from privacy_benchmark.adapters.base import AdapterError
 from privacy_benchmark.adapters.chat_notification import (
     AdbNotificationShade,
+    AppState,
     parse_dumpsys_notifications,
     probe_shade,
 )
@@ -41,16 +42,14 @@ class StubShade:
             raise AdapterError("adb unavailable")
         return self.output
 
-    def _state(self) -> object:
-        from privacy_benchmark.adapters.chat_notification import AppState
-
+    def _state(self) -> AppState:
         return AppState(
             notification_permission=True, app_running=True, screen_locked=True, dnd_active=False
         )
 
 
 def test_a_readable_dump_reports_what_the_parser_saw() -> None:
-    probe = probe_shade(StubShade(DUMP))  # type: ignore[arg-type]
+    probe = probe_shade(StubShade(DUMP))
 
     assert probe.readable is True
     assert probe.usable is True
@@ -63,7 +62,7 @@ def test_a_readable_dump_reports_what_the_parser_saw() -> None:
 def test_an_unrecognized_dump_is_reported_as_unreadable() -> None:
     """The quiet failure: no records must never read as a device with nothing to say."""
 
-    probe = probe_shade(StubShade("Notification manager state: 3 listeners\n"))  # type: ignore[arg-type]
+    probe = probe_shade(StubShade("Notification manager state: 3 listeners\n"))
 
     assert probe.readable is False
     assert probe.usable is False
@@ -80,13 +79,13 @@ def test_a_dump_with_no_string_extras_is_not_usable() -> None:
     parsed = parse_dumpsys_notifications(bare)
     assert len(parsed) == 1, "the record is kept; it simply carries nothing readable"
 
-    probe = probe_shade(StubShade(bare))  # type: ignore[arg-type]
+    probe = probe_shade(StubShade(bare))
     assert probe.readable is True
     assert probe.usable is False, "no extras means the check could only ever report pass"
 
 
 def test_an_unreachable_device_is_reported_rather_than_raised() -> None:
-    probe = probe_shade(StubShade(None))  # type: ignore[arg-type]
+    probe = probe_shade(StubShade(None))
 
     assert probe.readable is False
     assert probe.usable is False
@@ -96,7 +95,7 @@ def test_an_unreachable_device_is_reported_rather_than_raised() -> None:
 def test_the_probe_names_the_gap_it_exists_to_close() -> None:
     """The message must say the parser is unverified, so an operator does not debug the app."""
 
-    probe = probe_shade(StubShade("nothing here"))  # type: ignore[arg-type]
+    probe = probe_shade(StubShade("nothing here"))
     assert "not a captured one" in (probe.detail or "")
     assert "rather than that the device posts no notifications" in (probe.detail or "")
 
@@ -111,7 +110,7 @@ def test_the_probe_takes_no_device_action() -> None:
             recorded.append(args)
             return DUMP
 
-    probe_shade(Recording(DUMP))  # type: ignore[arg-type]
+    probe_shade(Recording(DUMP))
     assert recorded == [("shell", "dumpsys", "notification", "--noredact")]
 
 

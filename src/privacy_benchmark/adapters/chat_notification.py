@@ -503,7 +503,20 @@ class ShadeProbe(BaseModel):
         )
 
 
-def probe_shade(shade: AdbNotificationShade) -> ShadeProbe:
+class NotificationShade(Protocol):
+    """Reads a device's notification dump.
+
+    Split out as a protocol for the same reason as the chat session: the probe must be
+    exercisable against a scripted dump with no device attached, which is the only way
+    to test the parser's behaviour on each platform output format.
+    """
+
+    def _run(self, *args: str) -> str: ...
+
+    def _state(self) -> AppState: ...
+
+
+def probe_shade(shade: NotificationShade) -> ShadeProbe:
     """Read a device's notification dump and report what the parser could see.
 
     Safe to run before a lane is provisioned. It changes no device state: it reads
