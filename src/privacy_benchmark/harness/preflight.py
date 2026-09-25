@@ -30,20 +30,19 @@ import shutil
 import subprocess
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from enum import StrEnum
 from pathlib import Path
-from typing import Literal, Self
-from uuid import UUID, uuid7
+from uuid import uuid7
 
-from pydantic import Field, model_validator
-
-from privacy_benchmark.spec.constants import ID_PATTERN, SCHEMA_VERSION
 from privacy_benchmark.spec.models import (
-    Sha256,
-    StrictModel,
+    ClientObservation,
+    FieldStatus,
+    Finding,
+    PlatformObservation,
+    Severity,
+    SubjectObservation,
     SubjectRef,
     UtcDateTime,
+    VantageObservation,
     utc_now,
 )
 
@@ -82,125 +81,6 @@ def subprocess_runner(timeout: float = 30.0) -> CommandRunner:
         )
 
     return run
-
-
-class FieldStatus(StrEnum):
-    OBSERVED = "observed"
-    UNAVAILABLE = "unavailable"
-
-
-class Severity(StrEnum):
-    INFO = "info"
-    BLOCKER = "blocker"
-
-
-class ClientObservation(StrictModel):
-    """What was really running, as opposed to what the definition asserts."""
-
-    status: FieldStatus
-    name: str | None = Field(default=None, min_length=1, max_length=200)
-    version: str | None = Field(default=None, min_length=1, max_length=128)
-    build: str | None = Field(default=None, min_length=1, max_length=128)
-    package_identifier: str | None = Field(default=None, min_length=1, max_length=512)
-    artifact_sha256: Sha256 | None = None
-    distribution_channel: str | None = Field(default=None, min_length=1, max_length=128)
-    source: str = Field(min_length=1, max_length=200)
-    detail: dict[str, str] = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def unavailable_carries_no_build_identity(self) -> Self:
-        """An unavailable observation may name its target but never a build.
-
-        ``name`` and ``package_identifier`` describe what the lab set out to observe and
-        are worth keeping for diagnosis. ``version``, ``build``, and ``artifact_sha256``
-        would be a claim about what ran, which is exactly what is missing.
-        """
-
-        if self.status is FieldStatus.UNAVAILABLE and any(
-            value is not None for value in (self.version, self.build, self.artifact_sha256)
-        ):
-            raise ValueError("an unavailable client observation must not carry build identity")
-        return self
-
-    @property
-    def identifies_a_build(self) -> bool:
-        """Whether this observation can attribute a result to a specific build."""
-
-        return self.status is FieldStatus.OBSERVED and bool(self.version or self.artifact_sha256)
-
-
-class PlatformObservation(StrictModel):
-    status: FieldStatus
-    os: str | None = Field(default=None, min_length=1, max_length=100)
-    version: str | None = Field(default=None, min_length=1, max_length=128)
-    build: str | None = Field(default=None, min_length=1, max_length=128)
-    architecture: str | None = Field(default=None, min_length=1, max_length=64)
-    device_model: str | None = Field(default=None, min_length=1, max_length=200)
-    is_emulator: bool | None = None
-    emulator_evidence: str | None = Field(default=None, min_length=1, max_length=512)
-    source: str = Field(min_length=1, max_length=200)
-    detail: dict[str, str] = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def emulator_flag_needs_evidence(self) -> Self:
-        if self.is_emulator is True and not self.emulator_evidence:
-            raise ValueError("an emulator verdict must record the evidence for it")
-        return self
-
-
-class VantageObservation(StrictModel):
-    """Where the measurement was taken, as seen by the canary."""
-
-    status: FieldStatus
-    vantage_id: str | None = Field(default=None, min_length=1, max_length=128)
-    observed_public_ip: str | None = None
-    country_code: str | None = Field(default=None, min_length=2, max_length=2)
-    asn: str | None = Field(default=None, min_length=1, max_length=64)
-    source: str = Field(min_length=1, max_length=200)
-    detail: dict[str, str] = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def reject_a_placeholder_country(self) -> Self:
-        if self.country_code == "ZZ":
-            raise ValueError("'ZZ' is the unassigned placeholder, not an observed country")
-        return self
-
-    @property
-    def pins_a_region(self) -> bool:
-        return self.status is FieldStatus.OBSERVED and self.country_code is not None
-
-
-class Finding(StrictModel):
-    code: str = Field(pattern=ID_PATTERN)
-    severity: Severity
-    message: str = Field(min_length=1, max_length=2000)
-
-
-class SubjectObservation(StrictModel):
-    """A subject reference bound to the runtime facts a result is attributable to."""
-
-    schema_version: Literal["1alpha1"] = SCHEMA_VERSION
-    observation_id: UUID
-    subject: SubjectRef
-    observed_at: UtcDateTime
-    client: ClientObservation
-    platform: PlatformObservation
-    vantage: VantageObservation
-    findings: tuple[Finding, ...] = ()
-
-    @property
-    def blocks_measurement(self) -> bool:
-        return any(finding.severity is Severity.BLOCKER for finding in self.findings)
-
-    @property
-    def measurement_ready(self) -> bool:
-        """Whether a canonical result may be attributed to this observation."""
-
-        return not self.blocks_measurement and self.client.identifies_a_build
-
-
-def _now() -> datetime:
-    return utc_now().astimezone(UTC)
 
 
 # --------------------------------------------------------------------------- macOS
@@ -613,7 +493,7 @@ def build_observation(
     return SubjectObservation(
         observation_id=uuid7(),
         subject=subject,
-        observed_at=observed_at or _now(),
+        observed_at=observed_at or utc_now(),
         client=client,
         platform=platform_observation,
         vantage=vantage,
@@ -622,7 +502,6 @@ def build_observation(
 
 
 __all__ = [
-    "ClientObservation",
     "CompletedCommand",
     "FieldStatus",
     "Finding",

@@ -405,6 +405,126 @@ class ResultFileRef(StrictModel):
     path: str = Field(pattern=r"^results/[a-z0-9._-]+\.json$")
 
 
+#: Runtime identity of a subject, observed at measurement time rather than asserted by
+#: a definition. A checked-in subject deliberately leaves app version, build, artifact
+#: hash, device model, and measurement region unset, so an observation is what makes a
+#: result attributable to a build. The collectors that produce one live in
+#: ``harness/preflight.py``.
+class FieldStatus(StrEnum):
+    OBSERVED = "observed"
+    UNAVAILABLE = "unavailable"
+
+
+class Severity(StrEnum):
+    INFO = "info"
+    BLOCKER = "blocker"
+
+
+class ClientObservation(StrictModel):
+    """What was really running, as opposed to what the definition asserts."""
+
+    status: FieldStatus
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    version: str | None = Field(default=None, min_length=1, max_length=128)
+    build: str | None = Field(default=None, min_length=1, max_length=128)
+    package_identifier: str | None = Field(default=None, min_length=1, max_length=512)
+    artifact_sha256: Sha256 | None = None
+    distribution_channel: str | None = Field(default=None, min_length=1, max_length=128)
+    source: str = Field(min_length=1, max_length=200)
+    detail: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def unavailable_carries_no_build_identity(self) -> Self:
+        """An unavailable observation may name its target but never a build.
+
+        ``name`` and ``package_identifier`` describe what the lab set out to observe and
+        are worth keeping for diagnosis. ``version``, ``build``, and ``artifact_sha256``
+        would be a claim about what ran, which is exactly what is missing.
+        """
+
+        if self.status is FieldStatus.UNAVAILABLE and any(
+            value is not None for value in (self.version, self.build, self.artifact_sha256)
+        ):
+            raise ValueError("an unavailable client observation must not carry build identity")
+        return self
+
+    @property
+    def identifies_a_build(self) -> bool:
+        """Whether this observation can attribute a result to a specific build."""
+
+        return self.status is FieldStatus.OBSERVED and bool(self.version or self.artifact_sha256)
+
+
+class PlatformObservation(StrictModel):
+    status: FieldStatus
+    os: str | None = Field(default=None, min_length=1, max_length=100)
+    version: str | None = Field(default=None, min_length=1, max_length=128)
+    build: str | None = Field(default=None, min_length=1, max_length=128)
+    architecture: str | None = Field(default=None, min_length=1, max_length=64)
+    device_model: str | None = Field(default=None, min_length=1, max_length=200)
+    is_emulator: bool | None = None
+    emulator_evidence: str | None = Field(default=None, min_length=1, max_length=512)
+    source: str = Field(min_length=1, max_length=200)
+    detail: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def emulator_flag_needs_evidence(self) -> Self:
+        if self.is_emulator is True and not self.emulator_evidence:
+            raise ValueError("an emulator verdict must record the evidence for it")
+        return self
+
+
+class VantageObservation(StrictModel):
+    """Where the measurement was taken, as seen by the canary."""
+
+    status: FieldStatus
+    vantage_id: str | None = Field(default=None, min_length=1, max_length=128)
+    observed_public_ip: str | None = None
+    country_code: str | None = Field(default=None, min_length=2, max_length=2)
+    asn: str | None = Field(default=None, min_length=1, max_length=64)
+    source: str = Field(min_length=1, max_length=200)
+    detail: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def reject_a_placeholder_country(self) -> Self:
+        if self.country_code == "ZZ":
+            raise ValueError("'ZZ' is the unassigned placeholder, not an observed country")
+        return self
+
+    @property
+    def pins_a_region(self) -> bool:
+        return self.status is FieldStatus.OBSERVED and self.country_code is not None
+
+
+class Finding(StrictModel):
+    code: str = Field(pattern=ID_PATTERN)
+    severity: Severity
+    message: str = Field(min_length=1, max_length=2000)
+
+
+class SubjectObservation(StrictModel):
+    """A subject reference bound to the runtime facts a result is attributable to."""
+
+    schema_version: Literal["1alpha1"] = SCHEMA_VERSION
+    observation_id: UUID
+    subject: SubjectRef
+    observed_at: UtcDateTime
+    client: ClientObservation
+    platform: PlatformObservation
+    vantage: VantageObservation
+    findings: tuple[Finding, ...] = ()
+
+    @property
+    def blocks_measurement(self) -> bool:
+        return any(finding.severity is Severity.BLOCKER for finding in self.findings)
+
+    @property
+    def measurement_ready(self) -> bool:
+        """Whether a canonical result may be attributed to this observation."""
+
+        return not self.blocks_measurement and self.client.identifies_a_build
+
+
 class ExecutionManifest(StrictModel):
     schema_version: Literal["1alpha1"] = SCHEMA_VERSION
     execution_id: UUID
@@ -419,6 +539,11 @@ class ExecutionManifest(StrictModel):
     #: names the adapter that produced it, so this is a summary rather than the
     #: authority on which adapter produced which result.
     adapter_ids: tuple[Identifier, ...] = Field(min_length=1)
+    #: What was actually running, observed at execution time. A subject definition
+    #: deliberately leaves app version, build, and artifact hash unset, so this is the
+    #: only record of which build a result belongs to. ``None`` means the lane never ran
+    #: preflight, which is itself a gap worth seeing rather than papering over.
+    observation: SubjectObservation | None = None
     started_at: UtcDateTime
     completed_at: UtcDateTime
     completion: CompletionState
@@ -662,12 +787,6 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-def _subject_observation_model() -> type[StrictModel]:
-    from privacy_benchmark.harness.preflight import SubjectObservation
-
-    return SubjectObservation
-
-
 def schema_model_registry() -> dict[str, type[StrictModel]]:
     """Return public models that have a committed JSON Schema."""
 
@@ -682,9 +801,7 @@ def schema_model_registry() -> dict[str, type[StrictModel]]:
         "publication-receipt.schema.json": PublicationReceipt,
         "run-rollup.schema.json": RunRollup,
         "run-comparison.schema.json": RunComparison,
-        # Imported lazily: the observation contract is declared next to the collectors
-        # that produce it, and importing it at module scope would be circular.
-        "subject-observation.schema.json": _subject_observation_model(),
+        "subject-observation.schema.json": SubjectObservation,
     }
 
 

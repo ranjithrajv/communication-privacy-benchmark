@@ -8,6 +8,14 @@ All notable changes to this project are documented in this file. The format foll
 
 ### Changed
 
+- The preflight observation now reaches the run record. `ExecutionManifest` carries
+  the `SubjectObservation` that was active for an execution, and `pt-bench execute`
+  accepts `--observation`. Preflight was previously standalone: a workflow could run it
+  and drop the artifact, but no result named the build it was measured on, which is the
+  one thing a longitudinal comparison needs. The observation contracts moved from
+  `harness/preflight.py` into `spec/models.py` so the observation is an ordinary public
+  contract and the circular import the layering had required is gone.
+
 - Aggregation now validates the repetition axis: a subject-and-repetition position must
   be claimed by exactly one execution, and a repetition outside the planned range is
   refused. Previously two executions claiming the same repetition silently overwrote
@@ -24,6 +32,19 @@ All notable changes to this project are documented in this file. The format foll
 - Pinned the uv CLI to 0.12.18 in every workflow.
 
 ### Added
+
+- Tests that the publication gate *opens*. The checked-in policy has
+  `publication.target = "none"` and every provider-terms review is pending, so the only
+  path reachable here was the refusal. The first time someone selects a target and
+  approves a review, the succeeding path would run for the first time in production, on
+  a real weekly run, with a real account behind it. It is now exercised in CI against a
+  hand-built satisfying policy that does not weaken the real one.
+- Tests that a partly-implemented suite degrades honestly. Six of the ten declared
+  checks have no adapter on purpose, each waiting on infrastructure or a licence review.
+  The risk is not that they stay unimplemented but that a partial suite quietly
+  under-reports coverage, so an unimplemented check is now proven to surface as
+  `unsupported` through to the roll-up verdict, never as a pass, a missing row, or a
+  dropped count.
 
 - Six draft email disclosure checks joining `email.remote-content`, covering DNS and
   SNI resolution, reader identification, remote references in calendar, vCard, SVG and

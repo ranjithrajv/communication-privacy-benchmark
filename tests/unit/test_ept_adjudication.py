@@ -325,9 +325,9 @@ def test_the_dns_result_refuses_an_unwatched_lab() -> None:
 
 
 def _identifying(
-    origin: ObservationOrigin = ObservationOrigin.CLIENT, **detail: object
+    origin: ObservationOrigin = ObservationOrigin.CLIENT, **detail: JsonValue
 ) -> GatewayObservation:
-    return _observation(origin=origin, detail=dict(detail))
+    return _observation(origin=origin, detail=detail)
 
 
 def test_a_contact_carrying_a_source_address_discloses_the_reader() -> None:

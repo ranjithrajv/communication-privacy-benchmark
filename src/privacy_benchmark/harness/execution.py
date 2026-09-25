@@ -31,6 +31,7 @@ from privacy_benchmark.spec.models import (
     ResultStatus,
     RunPlan,
     SubjectDefinition,
+    SubjectObservation,
     SubjectRef,
     utc_now,
 )
@@ -238,6 +239,7 @@ async def run_execution(
     repetition: int,
     adapters: Mapping[str, CheckAdapter] | None = None,
     adapter: CheckAdapter | None = None,
+    observation: SubjectObservation | None = None,
 ) -> ExecutionOutcome:
     """Execute every planned check for one subject repetition.
 
@@ -288,6 +290,10 @@ async def run_execution(
         started_at=started_at,
     )
     write_model_json(execution_dir / "execution-state.json", state)
+    if observation is not None:
+        # Written before any check runs, and inside the checksummed execution directory,
+        # so the observation and the evidence it describes are covered by one seal.
+        write_model_json(execution_dir / "subject-observation.json", observation)
     try:
         await _execute_checks(
             plan=plan,
@@ -305,6 +311,19 @@ async def run_execution(
         manifest=manifest,
         exit_code=manifest_exit_code(manifest),
     )
+
+
+#: Written by ``run_execution`` before any check runs, and read back here rather than
+#: carried in ``ExecutionState`` so that a standalone ``pt-bench finalize`` over an
+#: existing execution directory keeps the observation.
+OBSERVATION_FILENAME = "subject-observation.json"
+
+
+def _read_observation(execution_dir: Path) -> SubjectObservation | None:
+    path = execution_dir / OBSERVATION_FILENAME
+    if not path.is_file():
+        return None
+    return read_model_json(path, SubjectObservation)
 
 
 def finalize_execution(*, execution_dir: Path, plan: RunPlan) -> ExecutionManifest:
@@ -365,6 +384,7 @@ def finalize_execution(*, execution_dir: Path, plan: RunPlan) -> ExecutionManife
         execution_mode=state.execution_mode,
         github=state.github,
         adapter_ids=tuple(sorted({item.adapter.id for item in state.adapters})),
+        observation=_read_observation(execution_dir),
         started_at=state.started_at,
         completed_at=completed_at,
         completion=CompletionState.COMPLETE,

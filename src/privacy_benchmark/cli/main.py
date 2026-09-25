@@ -70,6 +70,7 @@ from privacy_benchmark.spec.models import (
     ExecutionMode,
     RunPlan,
     SubjectDefinition,
+    SubjectObservation,
     SubjectRef,
 )
 from privacy_benchmark.spec.operations import (
@@ -569,6 +570,12 @@ def plan_command(
     show_default=True,
 )
 @click.option("--repetition", type=click.IntRange(1, 20), default=1, show_default=True)
+@click.option(
+    "--observation",
+    type=click.Path(path_type=Path, dir_okay=False, exists=True),
+    default=None,
+    help="A subject-observation document from 'pt-bench preflight'.",
+)
 @click.option("--force", is_flag=True, help="Replace an existing repetition directory.")
 def execute_command(
     *,
@@ -578,6 +585,7 @@ def execute_command(
     output_dir: Path,
     root: Path,
     repetition: int,
+    observation: Path | None,
     force: bool,
 ) -> None:
     """Execute all planned checks for one subject repetition."""
@@ -616,6 +624,9 @@ def execute_command(
                 checks=checks,
                 adapters=adapters,
                 adapter=forced,
+                observation=(
+                    read_model_json(observation, SubjectObservation) if observation else None
+                ),
                 execution_dir=execution_dir,
                 repetition=repetition,
             )

@@ -36,6 +36,117 @@
       "title": "AccountDefinition",
       "type": "object"
     },
+    "ClientObservation": {
+      "additionalProperties": false,
+      "description": "What was really running, as opposed to what the definition asserts.",
+      "properties": {
+        "artifact_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Artifact Sha256"
+        },
+        "build": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Build"
+        },
+        "detail": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Detail",
+          "type": "object"
+        },
+        "distribution_channel": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Distribution Channel"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "package_identifier": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Package Identifier"
+        },
+        "source": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/FieldStatus"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "status",
+        "source"
+      ],
+      "title": "ClientObservation",
+      "type": "object"
+    },
     "CompletionState": {
       "enum": [
         "complete",
@@ -183,6 +294,40 @@
       ],
       "title": "ExecutionMode",
       "type": "string"
+    },
+    "FieldStatus": {
+      "enum": [
+        "observed",
+        "unavailable"
+      ],
+      "title": "FieldStatus",
+      "type": "string"
+    },
+    "Finding": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$",
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        }
+      },
+      "required": [
+        "code",
+        "severity",
+        "message"
+      ],
+      "title": "Finding",
+      "type": "object"
     },
     "GitHubProvenance": {
       "additionalProperties": false,
@@ -393,6 +538,129 @@
       "title": "PlatformDefinition",
       "type": "object"
     },
+    "PlatformObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "architecture": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Architecture"
+        },
+        "build": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Build"
+        },
+        "detail": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Detail",
+          "type": "object"
+        },
+        "device_model": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Device Model"
+        },
+        "emulator_evidence": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Emulator Evidence"
+        },
+        "is_emulator": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Is Emulator"
+        },
+        "os": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Os"
+        },
+        "source": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/FieldStatus"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "status",
+        "source"
+      ],
+      "title": "PlatformObservation",
+      "type": "object"
+    },
     "ResultFileRef": {
       "additionalProperties": false,
       "properties": {
@@ -440,6 +708,14 @@
         "not_tested"
       ],
       "title": "ResultStatus",
+      "type": "string"
+    },
+    "Severity": {
+      "enum": [
+        "info",
+        "blocker"
+      ],
+      "title": "Severity",
       "type": "string"
     },
     "SubjectConfiguration": {
@@ -537,6 +813,165 @@
       ],
       "title": "SubjectDefinition",
       "type": "object"
+    },
+    "SubjectObservation": {
+      "additionalProperties": false,
+      "description": "A subject reference bound to the runtime facts a result is attributable to.",
+      "properties": {
+        "client": {
+          "$ref": "#/$defs/ClientObservation"
+        },
+        "findings": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Finding"
+          },
+          "title": "Findings",
+          "type": "array"
+        },
+        "observation_id": {
+          "format": "uuid",
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "platform": {
+          "$ref": "#/$defs/PlatformObservation"
+        },
+        "schema_version": {
+          "const": "1alpha1",
+          "default": "1alpha1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "subject": {
+          "$ref": "#/$defs/SubjectRef"
+        },
+        "vantage": {
+          "$ref": "#/$defs/VantageObservation"
+        }
+      },
+      "required": [
+        "observation_id",
+        "subject",
+        "observed_at",
+        "client",
+        "platform",
+        "vantage"
+      ],
+      "title": "SubjectObservation",
+      "type": "object"
+    },
+    "SubjectRef": {
+      "additionalProperties": false,
+      "properties": {
+        "subject_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$",
+          "title": "Subject Id",
+          "type": "string"
+        },
+        "subject_version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+          "title": "Subject Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "subject_id",
+        "subject_version"
+      ],
+      "title": "SubjectRef",
+      "type": "object"
+    },
+    "VantageObservation": {
+      "additionalProperties": false,
+      "description": "Where the measurement was taken, as seen by the canary.",
+      "properties": {
+        "asn": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Asn"
+        },
+        "country_code": {
+          "anyOf": [
+            {
+              "maxLength": 2,
+              "minLength": 2,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Country Code"
+        },
+        "detail": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Detail",
+          "type": "object"
+        },
+        "observed_public_ip": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed Public Ip"
+        },
+        "source": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/FieldStatus"
+        },
+        "vantage_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vantage Id"
+        }
+      },
+      "required": [
+        "status",
+        "source"
+      ],
+      "title": "VantageObservation",
+      "type": "object"
     }
   },
   "$id": "urn:communication-privacy-benchmark:schema:execution-manifest:1alpha1",
@@ -574,6 +1009,17 @@
       "anyOf": [
         {
           "$ref": "#/$defs/GitHubProvenance"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "observation": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SubjectObservation"
         },
         {
           "type": "null"
