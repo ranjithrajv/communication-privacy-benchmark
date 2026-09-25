@@ -24,10 +24,24 @@ EMAIL_CHECKS = {
 
 
 def test_checked_in_registry_is_valid(registry: Registry) -> None:
+    """Every declared family is registered, and the harness fixture exists.
+
+    The email set is asserted exactly because this repository owns it. The chat set is
+    derived from the chat suite instead, so that lane can grow its checks without an
+    unrelated inventory here failing; a suite referencing a check that is not registered
+    is already caught by registry validation.
+    """
+
+    chat_checks = {
+        (check_id, version)
+        for check_id, version in (
+            parse_reference(reference) for reference in registry.resolve_suite("chat@1.0.0").checks
+        )
+    }
     assert set(registry.checks) == {
-        ("chat.link-preview-fetch", "1.0.0"),
         ("harness.smoke", "1.0.0"),
-        *((f"{check_id}", "1.0.0") for check_id in sorted(EMAIL_CHECKS)),
+        *((check_id, "1.0.0") for check_id in sorted(EMAIL_CHECKS)),
+        *chat_checks,
     }
     assert ("fake-client", "1.0.0") in registry.subjects
     assert ("smoke", "1.0.0") in registry.suites
