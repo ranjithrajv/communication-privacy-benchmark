@@ -35,7 +35,7 @@ from privacy_benchmark.spec.models import (
     CheckRollup,
     CompletionState,
     ExecutionMode,
-    ResultStatus,
+    RollupOutcome,
     RunRollup,
 )
 
@@ -44,12 +44,21 @@ class ReportError(ValueError):
     """Raised when a bundle cannot be rendered as a report."""
 
 
-#: Statuses that establish a product property. Everything else says the sample did not
-#: establish one, and the report must never present them as a finding.
-DECISIVE_STATUSES = frozenset({ResultStatus.PASS, ResultStatus.FAIL})
+#: The only two outcomes that establish a product property. Everything else states that
+#: the sample did not establish one, so the report must never present it as a finding.
+ESTABLISHING_OUTCOMES = (RollupOutcome.PASS, RollupOutcome.FAIL)
+
+#: Every outcome a report cell can carry that establishes no product property, in enum
+#: order. Derived from the enum rather than written out by hand: a hand-written list
+#: drifts, and this one had drifted into naming `partial` and `not_tested`, which are
+#: :class:`~privacy_benchmark.spec.models.ResultStatus` values that no
+#: :class:`RollupOutcome` can take, while omitting the two that can.
+NON_ESTABLISHING_OUTCOMES = tuple(
+    outcome for outcome in RollupOutcome if outcome not in ESTABLISHING_OUTCOMES
+)
 
 #: Cell markers. A dash is a cell with no result at all, which is different from a cell
-#: whose result is `not_tested` or `inconclusive`.
+#: that reported a non-decisive outcome such as `inconclusive` or `unsupported`.
 _MISSING = "—"
 
 
@@ -137,6 +146,64 @@ def _reason_cell(check: CheckRollup | None) -> str:
     return ", ".join(f"`{code}`" for code in check.reason_codes)
 
 
+def _non_establishing_list() -> str:
+    """Name every non-establishing outcome as a report would print it.
+
+    The list is derived from the enum, so the article in front of it has to be derived
+    too: the leading word is whatever the enum happens to order first.
+    """
+
+    quoted = [f"`{outcome.value}`" for outcome in NON_ESTABLISHING_OUTCOMES]
+    leading = NON_ESTABLISHING_OUTCOMES[0].value
+    article = "An" if leading[0] in "aeiou" else "A"
+    return f"{article} {', '.join(quoted[:-1])}, or {quoted[-1]}"
+
+
+def _rate_cell(check: CheckRollup) -> str:
+    if check.pass_rate is None:
+        return _MISSING
+    return f"{check.pass_rate * 100:.1f}%"
+
+
+def _interval_cell(check: CheckRollup) -> str:
+    if check.pass_rate_low is None or check.pass_rate_high is None:
+        return _MISSING
+    return f"{check.pass_rate_low * 100:.1f}%-{check.pass_rate_high * 100:.1f}%"
+
+
+def _stability_table(rollup: RunRollup) -> str:
+    """Report the uncertainty behind every pass rate the matrix shows.
+
+    Mirrors the matrix's own guard rather than testing the rate alone: a single
+    repetition supports no proportion, so the matrix prints a bare outcome for it. This
+    table has to withhold it too, or the report would show a confident 100% interval
+    beside a cell that deliberately declined to state a rate.
+    """
+
+    header = ["check", "subject", "outcome", "n", "pass rate", "95% interval"]
+    repeated = rollup.repetitions > 1
+    rows: list[list[str]] = [
+        [
+            check.check.check_id,
+            subject.subject.subject_id,
+            check.outcome.value,
+            str(check.decisive_count),
+            _rate_cell(check),
+            _interval_cell(check),
+        ]
+        for subject in rollup.subjects
+        for check in subject.checks
+        if repeated and check.pass_rate is not None
+    ]
+    if not rows:
+        return (
+            "No cell in this run established a decisive sample, so there is no pass rate "
+            "and no interval to report."
+        )
+    table = [header, ["---"] * len(header), *rows]
+    return "\n".join("| " + " | ".join(row) + " |" for row in table)
+
+
 def render_report(rollup: RunRollup, provenance: ReportProvenance) -> str:
     """Render the full report: provenance, caveats, matrix, and reason codes.
 
@@ -164,7 +231,31 @@ def render_report(rollup: RunRollup, provenance: ReportProvenance) -> str:
         f"- Evidence records: {provenance.evidence_count}",
     ]
 
-    lines += ["", "## Outcomes", "", render_rollup_matrix(rollup)]
+    lines += [
+        "",
+        "## Outcomes",
+        "",
+        "One column per app, one row per check. Read down a column to compare apps on a "
+        "single check, which is the only comparison these results support; a column is "
+        "one pinned app configuration, not a verdict on the product.",
+        "",
+        render_rollup_matrix(rollup),
+    ]
+
+    lines += [
+        "",
+        "## Stability",
+        "",
+        "Every pass rate above is a proportion over *decisive* repetitions, and at these "
+        "sample sizes it is not a property of the client. Each is reported with its 95% "
+        "Wilson score interval, which is wide on purpose: a column of passes is evidence, "
+        "not a guarantee, and the interval is what keeps that visible. Repetitions that "
+        "were not decisive are excluded from the denominator rather than counted as "
+        "passes.",
+        "",
+        _stability_table(rollup),
+        "",
+    ]
 
     if reasons:
         lines += [
@@ -182,9 +273,9 @@ def render_report(rollup: RunRollup, provenance: ReportProvenance) -> str:
         "restated in different words without changing its code, and two runs that "
         "share a code are comparable even when their prose differs.",
         "",
-        "An `inconclusive`, `partial`, `unsupported`, or `not_tested` outcome states that "
-        "the sample did not establish a product property. Only `pass` and `fail` do, and "
-        "only those two are ordered when two runs are compared.",
+        f"{_non_establishing_list()} outcome states that the sample did not establish "
+        "a product property. Only `pass` and `fail` do, and only those two are ordered "
+        "when two runs are compared.",
         "",
     ]
     return "\n".join(lines)
@@ -232,7 +323,8 @@ def write_report(bundle_directory: Path, output: Path) -> str:
 
 
 __all__ = [
-    "DECISIVE_STATUSES",
+    "ESTABLISHING_OUTCOMES",
+    "NON_ESTABLISHING_OUTCOMES",
     "ReportError",
     "ReportProvenance",
     "load_report",

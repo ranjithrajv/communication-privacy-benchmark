@@ -397,9 +397,19 @@ def summarize_rollup(rollup: RunRollup) -> dict[str, int]:
 #: Rendered in a cell when a planned check has no rollup for that subject.
 _MISSING_CELL = "—"
 
+#: Corner cell of the matrix. Naming it makes the orientation assertable: the contract
+#: is that this label heads the app columns, so a transposed table fails a test rather
+#: than reaching a reader as a differently-shaped and differently-scoped claim.
+MATRIX_CORNER_LABEL = "check"
+
 
 def _subject_label(subject: SubjectRollup) -> str:
-    """Name a subject for a column header, falling back to its registry identifier."""
+    """Name a subject for a column header, falling back to its registry identifier.
+
+    The client name is preferred so a column reads as an app a reader recognises. The
+    registry id is the honest fallback when no execution supplied a definition: an
+    invented product name would be worse than an opaque one.
+    """
 
     return subject.client_name or subject.subject.subject_id
 
@@ -418,11 +428,26 @@ def _matrix_cell(check: CheckRollup, repetitions: int) -> str:
 
 
 def render_rollup_matrix(rollup: RunRollup) -> str:
-    """Render the rollup as a check-by-subject table: rows are checks, columns subjects.
+    """Render the rollup with apps as columns and checks as rows.
 
-    This is the transpose of :class:`RunRollup`, which stores one entry per subject.
+    **Apps across the top, checks down the side.** That orientation is a reporting
+    contract, not a formatting preference:
+
+    - a reader compares apps by reading down a column, holding the check fixed, which is
+      the only comparison the benchmark actually supports;
+    - holding a check fixed is what makes two apps comparable at all, since each column
+      is one pinned app *configuration* rather than a product in the abstract;
+    - the transpose would present each app as its own list of verdicts, which reads as a
+      per-app summary and invites exactly the single score this project refuses to
+      produce.
+
+    It is also the easy direction to get wrong, because :class:`RunRollup` stores one
+    entry per subject and is therefore already app-major. This function is the only
+    place that lays the table out, and both the analysis and report test suites assert
+    the orientation, so a transpose has to be made deliberately to survive.
+
     Subjects keep the plan's declared order rather than being sorted, so a suite that
-    declares Signal, WhatsApp, then Telegram renders in that order. Subject order is
+    declares Signal, WhatsApp, then Telegram renders in that order. Column order is
     reporting layout only and never implies a ranking; the table states outcomes per
     check and does not collapse them into a score.
     """
@@ -437,7 +462,7 @@ def render_rollup_matrix(rollup: RunRollup) -> str:
                 check_order.append(check_id)
             cells[(check_id, subject_id)] = _matrix_cell(check, rollup.repetitions)
 
-    headers = ["check", *(_subject_label(subject) for subject in rollup.subjects)]
+    headers = [MATRIX_CORNER_LABEL, *(_subject_label(subject) for subject in rollup.subjects)]
     rows = [
         [
             check_id,

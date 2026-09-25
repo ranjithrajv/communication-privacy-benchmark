@@ -7,6 +7,7 @@ not implement any of the parsing under test.
 
 from __future__ import annotations
 
+import platform
 import plistlib
 from datetime import UTC, datetime
 from pathlib import Path
@@ -25,7 +26,9 @@ from privacy_benchmark.harness.preflight import (
     collect_android_client,
     collect_android_platform,
     collect_macos_client,
+    collect_macos_platform,
     observe_vantage,
+    subprocess_runner,
 )
 from privacy_benchmark.spec.models import SubjectRef
 
@@ -114,6 +117,25 @@ def _bundle(tmp_path: Path, plist: dict[str, object] | None, *, binary: bool = T
     return tmp_path / "Mail.app"
 
 
+class TestSubprocessRunner:
+    """The real process boundary, exercised with harmless commands."""
+
+    def test_a_real_command_is_run(self) -> None:
+        result = subprocess_runner(timeout=10)(("echo", "observed"))
+        assert result.returncode == 0
+        assert result.stdout.strip() == "observed"
+
+    def test_a_failing_command_reports_its_code(self) -> None:
+        assert subprocess_runner(timeout=10)(("false",)).returncode != 0
+
+    def test_a_missing_binary_does_not_raise(self) -> None:
+        """A missing adb on a workstation must be a failed probe, not a crash."""
+
+        result = subprocess_runner(timeout=10)(("pt-bench-no-such-binary-xyz",))
+        assert result.returncode != 0
+        assert result.stdout == ""
+
+
 class TestMacosClient:
     def test_a_binary_plist_is_parsed(self, tmp_path: Path) -> None:
         bundle = _bundle(
@@ -164,10 +186,40 @@ class TestMacosClient:
         assert observed.status is FieldStatus.UNAVAILABLE
         assert observed.version is None
 
+    def test_a_plist_that_is_not_a_dictionary_is_unavailable(self, tmp_path: Path) -> None:
+        root = tmp_path / "Mail.app" / "Contents" / "Resources"
+        root.mkdir(parents=True)
+        # A structurally valid plist whose top level is an array, not a dictionary.
+        (root / "Info.plist").write_bytes(
+            b'<?xml version="1.0" encoding="UTF-8"?>'
+            b'<plist version="1.0"><array><string>x</string></array></plist>'
+        )
+        observed = collect_macos_client(tmp_path / "Mail.app")
+        assert observed.status is FieldStatus.UNAVAILABLE
+        assert observed.version is None
+
     def test_a_plist_without_a_version_cannot_identify_a_build(self, tmp_path: Path) -> None:
         observed = collect_macos_client(_bundle(tmp_path, {"CFBundleName": "Mail"}))
         assert observed.status is FieldStatus.OBSERVED
         assert observed.identifies_a_build is False
+
+
+class TestMacosPlatform:
+    def test_a_non_macos_host_is_unavailable_not_guessed(self) -> None:
+        """Running this on Linux must not invent a macOS build.
+
+        The runner class decides the platform, so a collector asked on the wrong host
+        reports unavailable rather than fabricating a version.
+        """
+
+        observed = collect_macos_platform()
+        if platform.system() == "Darwin":
+            assert observed.status is FieldStatus.OBSERVED
+            assert observed.is_emulator is False
+        else:
+            assert observed.status is FieldStatus.UNAVAILABLE
+            assert observed.version is None
+            assert "mac_ver" in observed.detail["reason"]
 
 
 class TestAndroidClient:
