@@ -124,6 +124,16 @@ class GatewayObservation(_GatewayModel):
     remote_host: str = Field(min_length=1, max_length=253)
     observed_at: UtcDateTime
     resource: str | None = Field(default=None, max_length=2048)
+    #: The ``Referer`` header exactly as observed, or ``None`` when the request carried
+    #: none. A ``None`` here means nothing on its own: only the parent test's
+    #: ``referer_captured`` separates "the client sent no Referer" from "this gateway
+    #: never looked", and the adjudication refuses to pass without it.
+    #:
+    #: A declared field rather than a key smuggled through ``detail``, which is an open
+    #: map where a key spelled differently is absent rather than wrong, and this is a
+    #: load-bearing input. ``extra="forbid"`` means a gateway sending this to an adapter
+    #: that does not declare it fails loudly instead of being quietly ignored.
+    referrer: str | None = Field(default=None, max_length=2048)
     detail: dict[str, JsonValue] = Field(default_factory=dict)
 
 
@@ -157,6 +167,20 @@ class GatewayTestState(_GatewayModel):
     watchers_healthy: bool = False
     window_expires_at: UtcDateTime
     exercised: tuple[str, ...] = ()
+    #: Whether this deployment captured the ``Referer`` header on canary contacts.
+    #: Declared by the gateway rather than inferred from the observations, because a
+    #: gateway that does not capture it produces exactly the same observation set as a
+    #: client that leaks nothing, and that difference is the whole measurement. Upstream
+    #: cannot supply this at all, so ``False`` is the honest default for every deployment
+    #: not changed on purpose, and it is what makes an unpatched gateway report
+    #: ``inconclusive`` instead of a clean client.
+    referer_captured: bool = False
+    #: Hosts this test also exposes as canaries, beyond the tracking host itself. A
+    #: ``Referer`` observed on one of these is leakage to a party the reader did not
+    #: choose to visit, which is the threat this check exists for; one observed on the
+    #: tracking host only discloses the mailbox origin to the canary operator. Both are
+    #: real, and collapsing them would misname who learned what.
+    third_party_hosts: tuple[str, ...] = ()
 
 
 #: Upstream vectors each check needs the gateway to have actually run, for checks whose
@@ -212,6 +236,11 @@ REQUIRED_EXERCISED: Mapping[str, frozenset[str]] = {
     "email.mime-remote-part": frozenset(MIME_PART_VECTORS),
     "email.list-unsubscribe-fetch": frozenset(LIST_UNSUBSCRIBE_VECTORS),
     "email.background-fetch": frozenset(BACKGROUND_VECTORS),
+    # A Referer can only be observed on a request the client actually made, so this
+    # needs a vector the client was offered and ran. `img` is the plainest body vector
+    # and is the one `email.remote-content` already uses, so one canary run informs both
+    # checks instead of requiring a second probe window.
+    "email.referrer-disclosure": frozenset({"img"}),
 }
 
 
@@ -235,6 +264,10 @@ class Adjudication(StrEnum):
     NO_LIST_UNSUBSCRIBE_FETCH_OBSERVED = "ept.no-list-unsubscribe-fetch-observed"
     BACKGROUND_FETCH_DISCLOSED = "ept.background-fetch-disclosed"
     NO_BACKGROUND_FETCH_OBSERVED = "ept.no-background-fetch-observed"
+    THIRD_PARTY_REFERRER_DISCLOSED = "ept.third-party-referrer-disclosed"
+    REFERRER_DISCLOSED = "ept.referrer-disclosed"
+    NO_REFERRER_OBSERVED = "ept.no-referrer-observed"
+    REFERER_NOT_CAPTURED = "ept.referrer-not-captured"
     UNSUPPORTED_CHECK = "ept.unsupported-check"
 
 
@@ -664,6 +697,87 @@ def adjudicate_background_fetch(
     )
 
 
+def adjudicate_referrer_disclosure(
+    *,
+    state: GatewayTestState,
+    observations: tuple[GatewayObservation, ...],
+    open_asserted: bool,
+) -> tuple[ResultStatus, Adjudication, str]:
+    """Decide ``email.referrer-disclosure``.
+
+    Two things separate this from every other check that reads the same observations.
+    First, a missing ``Referer`` is evidence only if the gateway said it looked: an
+    unpatched gateway returns byte-identical observations for a client that leaks a
+    mailbox origin and one that leaks nothing, so the capability declaration is consulted
+    before any clean verdict is reachable. Second, a ``Referer`` reaching the tracking host
+    and one reaching some other host are disclosures to different parties, so the host
+    decides which is reported rather than either being called "leakage".
+
+    A clean result is ``partial`` whenever the gateway ran no third-party canary. The
+    declared threat is a host the reader did not choose to visit, and a run that watched
+    only the tracking host never exercised it, so reporting ``pass`` would claim coverage
+    that was not measured.
+    """
+
+    validity = _settle_validity(state=state, open_asserted=open_asserted)
+    if validity is not None:
+        return validity
+
+    if not state.referer_captured:
+        return (
+            ResultStatus.INCONCLUSIVE,
+            Adjudication.REFERER_NOT_CAPTURED,
+            "The gateway did not declare that it captured the Referer header, so its "
+            "absence cannot be told apart from a gateway that never looked. No client "
+            "result is claimed.",
+        )
+
+    client = _attributed_client_activity(
+        check_id="email.referrer-disclosure", observations=observations, state=state
+    )
+    third_party = frozenset(state.third_party_hosts)
+    leaks = [item for item in client if item.referrer]
+    foreign = [item for item in leaks if item.remote_host in third_party]
+    if foreign:
+        hosts = sorted({item.remote_host for item in foreign})
+        return (
+            ResultStatus.FAIL,
+            Adjudication.THIRD_PARTY_REFERRER_DISCLOSED,
+            f"The client sent a Referer header to {', '.join(hosts)}, a host outside the "
+            f"message, disclosing the reader's mailbox origin to a party they did not "
+            f"choose to visit.",
+        )
+    if leaks:
+        hosts = sorted({item.remote_host for item in leaks})
+        return (
+            ResultStatus.FAIL,
+            Adjudication.REFERRER_DISCLOSED,
+            f"The client sent a Referer header to its own canary at {', '.join(hosts)}, "
+            f"disclosing the mailbox origin to the canary operator.",
+        )
+    if observations and not client:
+        return (
+            ResultStatus.INCONCLUSIVE,
+            Adjudication.UNATTRIBUTED_ACTIVITY,
+            "Canary activity carried Referer headers, but none could be attributed to the "
+            "client, so no client result is claimed.",
+        )
+    if not third_party:
+        return (
+            ResultStatus.PARTIAL,
+            Adjudication.NO_REFERRER_OBSERVED,
+            "The gateway captured the Referer header and the client sent none on any canary "
+            "contact, but the test ran no third-party canary host, so leakage to a host the "
+            "reader did not choose to visit was not exercised.",
+        )
+    return (
+        ResultStatus.PASS,
+        Adjudication.NO_REFERRER_OBSERVED,
+        "The gateway captured the Referer header and the client sent none on any canary "
+        "contact, including third-party hosts outside the message.",
+    )
+
+
 def _settle_validity(
     *, state: GatewayTestState, open_asserted: bool
 ) -> tuple[ResultStatus, Adjudication, str] | None:
@@ -737,6 +851,10 @@ def _adjudicate_check(
         return adjudicate_background_fetch(
             state=state, observations=observations, open_asserted=open_asserted
         )
+    if check_id == "email.referrer-disclosure":
+        return adjudicate_referrer_disclosure(
+            state=state, observations=observations, open_asserted=open_asserted
+        )
     return adjudicate(state=state, observations=observations, open_asserted=open_asserted)
 
 
@@ -801,6 +919,7 @@ class EptGatewayAdapter:
                 "email.mime-remote-part",
                 "email.list-unsubscribe-fetch",
                 "email.background-fetch",
+                "email.referrer-disclosure",
             }
         )
     )

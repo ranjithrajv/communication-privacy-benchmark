@@ -104,3 +104,16 @@ rendering for a bare `GPL-3.0` identifier. `TECH_STACK_DECISION.md` was right to
 to assume relicensing: the authoritative declaration is **GPL-3.0**, and the badge
 disagrees with it. Preserve notices and corresponding source, and do not adapt the
 corpus without explicit upstream permission.
+
+## The `Referer` header cannot be answered upstream, only by our fork
+
+`backend/routes/callback.js` records exactly two request attributes: `user-agent` and
+`X-Forwarded-For`. There is no `Referer`, so `email.referrer-disclosure` has no upstream
+answer at all.
+
+The private gateway must therefore be changed to record the header and to declare that it
+does, because the absence of a header and the absence of any attempt to look are
+indistinguishable in the observations. A gateway that does not declare `referer_captured`
+is treated as one that never looked, and the check reports `inconclusive`. That default is
+deliberate and fail-closed: the alternative is a benchmark that reports every mail client
+as clean because its canary server was not instrumented.
