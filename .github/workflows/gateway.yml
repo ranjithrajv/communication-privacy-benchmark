@@ -1,0 +1,79 @@
+name: Gateway
+
+# The canary gateway is a separate distribution with its own lockfile, on purpose: it is
+# long-lived lab infrastructure, not code every benchmark Actions job installs. This
+# workflow therefore has its own job set and its own `uv sync --locked`, and nothing in the
+# core's lockfile or its seven required checks depends on it.
+#
+# The one thing it does share is the contract: these tests drive the benchmark's real
+# `EptGatewayClient` against the real application, so a field renamed on either side fails
+# here rather than on a measurement runner.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "gateway/**"
+      - "src/privacy_benchmark/adapters/ept.py"
+      - "infra/ept/**"
+      - ".github/workflows/gateway.yml"
+  pull_request:
+    paths:
+      - "gateway/**"
+      - "src/privacy_benchmark/adapters/ept.py"
+      - "infra/ept/**"
+      - ".github/workflows/gateway.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gateway-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gateway:
+    name: Gateway contract and tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The gateway resolves the benchmark core from the checkout, so the tree has to
+          # be complete rather than a shallow clone of the gateway directory.
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      - name: Sync dependencies from the committed lockfile
+        working-directory: gateway
+        run: uv sync --locked --all-extras --all-groups
+
+      - name: Check formatting
+        working-directory: gateway
+        run: uv run --no-sync ruff format --check .
+
+      - name: Lint
+        working-directory: gateway
+        run: uv run --no-sync ruff check .
+
+      - name: Type check
+        working-directory: gateway
+        run: uv run --no-sync ty check src tests
+
+      - name: Contract and unit tests
+        working-directory: gateway
+        run: uv run --no-sync pytest -q
+
+      - name: Audit dependencies
+        working-directory: gateway
+        run: uv audit --locked --preview-features audit-command

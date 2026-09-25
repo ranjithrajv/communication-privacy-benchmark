@@ -8,6 +8,42 @@ All notable changes to this project are documented in this file. The format foll
 
 ### Added
 
+- `gateway/`, the private canary gateway, as a **separate distribution with its own
+  lockfile**. Ten checks were wired to a contract that nothing implemented: `infra/` held
+  documentation and no service, so every email and webmail measurement was blocked on
+  software that did not exist. `TECH_STACK_DECISION.md` sanctions a unified canary service
+  "only when the email/chat contracts prove it is needed"; they now do, so the condition
+  is met. It is deliberately *not* a uv workspace member, because its dependency set has
+  no business changing the lockfile every short-lived Actions job installs.
+
+  It implements the three routes in `infra/ept/README.md` plus the collectors' write path,
+  and its models are written independently of the adapter's. That is the point: if the two
+  sides shared models they could not disagree, and disagreement is the bug class that
+  produces a clean result for a client that was never measured. `tests/test_contract.py`
+  therefore runs the benchmark's real `EptGatewayClient` against the real application.
+
+  Three behaviours are load-bearing rather than incidental:
+
+  - **Watcher health is a heartbeat, never a flag.** `watchers_healthy` is computed from
+    whether every required collector has checked in inside a grace period, so a collector
+    that has stopped stops vouching for the window. A service that hardcoded it would
+    report every unwatched window as a clean client. A freshly started service is
+    unhealthy until its collectors announce themselves, which is the correct default.
+  - **The `Referer` header is recorded verbatim and the capability is declared.** The
+    adapter refuses to report a clean client without `referer_captured`, so that flag is a
+    promise this service has to keep rather than a value the adapter can assume.
+  - **Contacts for an unknown or expired probe are refused**, and an unauthenticated
+    contact is refused, because an invented contact is a failed measurement that looks
+    like a disclosure.
+
+  Not built yet, and said so in `gateway/README.md`: SMTP delivery, the DNS and SNI
+  watchers (so no window can currently be healthy), and persistent storage. The store is
+  a `Protocol` with an in-memory reference implementation, so PostgreSQL with SQLAlchemy
+  Core is a substitution behind that interface rather than a rewrite. Upstream Email
+  Privacy Tester is not embedded, proxied, or wrapped: it is GPL-3.0 and cannot be
+  combined into an AGPL-3.0-only distribution, so the contract is implemented from the
+  written spec instead.
+
 - `email.referrer-disclosure` is answered by the EPT adapter, which required extending
   the gateway contract rather than the adapter alone. `GatewayTestState` gains
   `referer_captured` and `third_party_hosts`, and `GatewayObservation` gains a declared
