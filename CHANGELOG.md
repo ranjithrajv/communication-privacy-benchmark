@@ -8,6 +8,12 @@ All notable changes to this project are documented in this file. The format foll
 
 ### Changed
 
+- Aggregation now validates the repetition axis: a subject-and-repetition position must
+  be claimed by exactly one execution, and a repetition outside the planned range is
+  refused. Previously two executions claiming the same repetition silently overwrote
+  each other's results while `result_count` counted both, so a bundle could report
+  `complete` for a repetition that was never measured. The redundant execution-count
+  check was removed because these two guards subsume it.
 - The gateway contract no longer claims an observation channel or signal that upstream
   cannot produce. There is no TCP channel (preconnect arrives via SNI) and no MIME
   channel, and the open assertion moved from the gateway to the harness, because EPT has

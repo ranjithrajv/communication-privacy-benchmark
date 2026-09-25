@@ -57,6 +57,7 @@ def aggregate_run(
     result_count = 0
     evidence_ids: set[str] = set()
     evidence_count = 0
+    positions: set[tuple[str, str, int]] = set()
 
     for manifest_path in manifest_paths:
         execution_dir = manifest_path.parent
@@ -73,6 +74,28 @@ def aggregate_run(
             (subject.subject_id, subject.subject_version) for subject in plan.subjects
         }:
             raise AggregationError(f"execution {manifest.execution_id} uses an unplanned subject")
+
+        # The repetition axis is what makes a pass rate mean anything, so a position
+        # must be claimed by exactly one execution. Without this, two executions
+        # claiming the same repetition would overwrite each other's results while
+        # result_count still counted both, producing a bundle that reports complete for
+        # a repetition that was never measured.
+        position = (*subject_key, manifest.repetition)
+        if position in positions:
+            raise AggregationError(
+                f"repetition {manifest.repetition} of subject "
+                f"{manifest.subject.subject_id}@{manifest.subject.subject_version} is "
+                "claimed by more than one execution"
+            )
+        if not 1 <= manifest.repetition <= plan.repetitions:
+            raise AggregationError(
+                f"execution {manifest.execution_id} claims repetition "
+                f"{manifest.repetition} outside the planned 1..{plan.repetitions}"
+            )
+        # Together these two guards bound the manifest count to
+        # len(plan.subjects) * plan.repetitions, which is exactly
+        # plan.expected_execution_count, so no separate count check is needed.
+        positions.add(position)
 
         relative_base = Path(manifest.subject.subject_id) / f"{manifest.repetition:04d}"
         for result_ref in manifest.results:
@@ -121,11 +144,6 @@ def aggregate_run(
                 evidence_count += 1
 
         manifests.append(manifest)
-
-    if len(manifests) > plan.expected_execution_count:
-        raise AggregationError(
-            f"found {len(manifests)} executions but plan expects {plan.expected_execution_count}"
-        )
 
     subject_counts = {
         (manifest.subject.subject_id, manifest.subject.subject_version): 0 for manifest in manifests
