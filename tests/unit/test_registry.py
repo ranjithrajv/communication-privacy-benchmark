@@ -42,9 +42,18 @@ def test_checked_in_registry_is_valid(registry: Registry) -> None:
         ("harness.smoke", "1.0.0"),
         *((check_id, "1.0.0") for check_id in sorted(EMAIL_CHECKS)),
         *chat_checks,
+        *WEBMAIL_CHECKS,
     }
     assert ("fake-client", "1.0.0") in registry.subjects
     assert ("smoke", "1.0.0") in registry.suites
+
+
+#: Listed literally rather than derived from a suite, unlike the chat set above, and that
+#: asymmetry is the point: there is no webmail suite because a suite must name at least
+#: one subject and a subject *is* a provider. Naming the provider is still an open
+#: decision, so the check is registered and the suite is not. If a provider is chosen this
+#: becomes derived like the chat set, and this constant disappears.
+WEBMAIL_CHECKS = {("webmail.remote-content", "1.0.0")}
 
 
 EMAIL_SUBJECTS = {

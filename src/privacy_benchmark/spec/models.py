@@ -24,6 +24,7 @@ from pydantic import (
 )
 
 from privacy_benchmark.spec.constants import (
+    HTTPS_URL_PATTERN,
     ID_PATTERN,
     REPOSITORY_PATTERN,
     SCHEMA_VERSION,
@@ -267,6 +268,56 @@ class NetworkVantage(StrictModel):
     notes: str | None = Field(default=None, max_length=1000)
 
 
+class WebmailAutomation(StrictModel):
+    """How the harness drives a webmail subject's own UI.
+
+    The recipe is data rather than code so that choosing a webmail provider is a change
+    to a checked-in subject, not a branch of the adapter. That matters for the benchmark
+    in both directions: a new provider must not require re-reading the adapter to know
+    what it will drive, and a recipe cannot quietly encode a provider's behaviour the way
+    a hardcoded call site can.
+
+    Selectors are Playwright selector strings. They are part of the subject because a
+    recipe that silently stopped matching its product would otherwise turn into a
+    reported ``pass``: the run would open nothing, the canary would record nothing, and
+    the absence would be indistinguishable from a client that fetched no remote content.
+    The adapter treats an unresolvable selector as a harness ``error`` for that reason.
+    """
+
+    entry_url: str = Field(pattern=HTTPS_URL_PATTERN, max_length=2048)
+    user_field: str = Field(min_length=1, max_length=1024)
+    password_field: str = Field(min_length=1, max_length=1024)
+    submit_field: str = Field(min_length=1, max_length=1024)
+    message_row: str = Field(min_length=1, max_length=1024)
+    message_open: str = Field(min_length=1, max_length=1024)
+    message_body: str = Field(min_length=1, max_length=1024)
+    ready_marker: str = Field(min_length=1, max_length=512)
+    #: ``message_row`` is taken to match the message list in newest-first order, because
+    #: the harness opens the first match and the canary is the message that just arrived.
+    #: There is no way to check that from here, so it is stated rather than validated: a
+    #: recipe that lists oldest-first would open the wrong message and the resulting
+    #: observation would belong to a message nobody opened. Such a recipe fails loudly
+    #: because the canary records nothing, not quietly.
+    sign_out_field: str | None = Field(default=None, max_length=1024)
+    login_timeout_seconds: int = Field(default=60, ge=5, le=600)
+    open_timeout_seconds: int = Field(default=60, ge=5, le=600)
+
+    @model_validator(mode="after")
+    def reject_a_recipe_that_cannot_exercise_a_message(self) -> Self:
+        # A recipe whose row and open selectors are the same element could never
+        # distinguish "the message list never loaded" from "the message opened", which
+        # is the one distinction the open signal exists to make.
+        if self.message_row.strip() == self.message_open.strip():
+            raise ValueError("message_row and message_open must be different selectors")
+        return self
+
+    @model_validator(mode="after")
+    def require_the_body_to_be_distinct_from_the_open_control(self) -> Self:
+        if self.message_body.strip() == self.message_open.strip():
+            raise ValueError("message_body must not be the same selector as message_open")
+        return self
+
+
 class SubjectDefinition(StrictModel):
     schema_version: Literal["1alpha1"] = SCHEMA_VERSION
     subject_id: Identifier
@@ -277,7 +328,17 @@ class SubjectDefinition(StrictModel):
     account: AccountDefinition
     configuration: SubjectConfiguration = Field(default_factory=SubjectConfiguration)
     network_vantage: NetworkVantage
+    automation: WebmailAutomation | None = None
     notes: str | None = Field(default=None, max_length=2000)
+
+    @model_validator(mode="after")
+    def require_a_service_for_a_driven_webmail_subject(self) -> Self:
+        # Webmail is a service the reader authenticates against, not a client they install.
+        # A recipe with no service named would produce a row whose provider column is
+        # empty, and a comparison row is meaningless without knowing which one it is.
+        if self.automation is not None and self.service is None:
+            raise ValueError("a subject carrying a webmail automation recipe must name its service")
+        return self
 
 
 class CheckRef(StrictModel):

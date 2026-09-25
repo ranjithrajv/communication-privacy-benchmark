@@ -16,3 +16,8 @@ SEMVER_PATTERN: Final = (
 )
 SHA256_PATTERN: Final = r"^[0-9a-f]{64}$"
 REPOSITORY_PATTERN: Final = r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+#: Only https is accepted for a webmail entry point. The harness types a synthetic
+#: account's credentials into that origin, so a plain-http recipe would put a password
+#: on the wire in a form any network observer could read, and would make the subject
+#: unfaithful to the product a reader actually uses.
+HTTPS_URL_PATTERN: Final = r"^https://[^\s/?#]+[^\s]*$"

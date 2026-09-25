@@ -1,0 +1,27 @@
+schema_version = "1alpha1"
+check_id = "webmail.remote-content"
+version = "1.0.0"
+status = "draft"
+title = "Remote content loading when a webmail message is opened"
+description = "Determines whether rendering a synthetic message in a webmail product causes the browser to fetch remote resources without an explicit reader action. The webmail-playwright adapter answers this check against the same canary the desktop clients use, because the adversary and the channel are identical; what differs is that the harness opens the message by driving the product's own UI, and the provider is supplied by the subject's automation recipe rather than compiled into the adapter. The definition remains draft and has no suite, because no webmail subject exists: the provider is unselected, so there is no product, no recipe, and no row to compare. It also needs a pinned gateway, a browser runner lane, a provisioned synthetic mailbox, and an approved provider-terms review. Until the provider is chosen this check is a declared gap rather than a pending measurement, and it must not be given a placeholder subject to make the pipeline look complete."
+channel = "webmail"
+evidence_class = "measured"
+adapter_id = "webmail-playwright"
+canonical = true
+timeout_seconds = 1800
+# A browser lane is a self-hosted runner in the measurement region, not a device: the
+# client under test is the browser, so the axis that has to be pinned is the vantage the
+# browser runs from rather than a hardware profile. Reusing `self_hosted_regional` keeps
+# the lane comparable to the other regional runners instead of inventing a class that
+# would silently split them.
+runner_classes = ["self_hosted_regional"]
+
+[[threat_models]]
+id = "webmail.read-disclosure"
+title = "Message read disclosure to the canary"
+description = "A party operating the canary learns that a specific synthetic message was opened, and may also learn the reader's IP address, user agent, and request timing from the fetch itself."
+
+[[threat_models]]
+id = "webmail.provider-render-disclosure"
+title = "Provider-side rendering disclosure"
+description = "The webmail provider learns the message was opened because it fetched or rewrote the remote content on the reader's behalf, with no client-side fetch and often no reader action at all. This is a different adversary from the canary operator and a different control, so a product that proxies images through its own image cache discloses to its provider while reporting nothing to the canary."

@@ -32,6 +32,12 @@ from privacy_benchmark.adapters.ept import (
     mailbox_config_from_environment,
 )
 from privacy_benchmark.adapters.fake import FakeAdapter
+from privacy_benchmark.adapters.webmail_playwright import (
+    PlaywrightWebmailSession,
+    WebmailPlaywrightAdapter,
+    browser_lane_available,
+    webmail_credentials_from_environment,
+)
 from privacy_benchmark.harness.aggregation import aggregate_run
 from privacy_benchmark.harness.analysis import (
     load_bundle,
@@ -119,6 +125,21 @@ def _adapter_registry() -> AdapterRegistry:
         numbers = numbers_config_from_environment()
         registry.register(ChatAppiumAdapter(client=chat_client, numbers=numbers))
         registry.register(ChatNotificationAdapter(gateway=chat_client, numbers=numbers))
+
+    # The webmail lane observes the same canary the email lane does, so it is registered
+    # from the same gateway configuration and needs no second gateway of its own. The
+    # adapter is always registered so that a routed check reaches it and reports why it
+    # could not be answered; only the session factory is conditional, because that is
+    # what distinguishes a lane that exists from one that does not. A browser-less runner
+    # must report the check as unexercised rather than answer it from the harness process.
+    if email is not None:
+        webmail = WebmailPlaywrightAdapter(
+            client=EptGatewayClient(base_url=email[0], token=email[1]),
+            credentials=webmail_credentials_from_environment(),
+        )
+        if browser_lane_available():
+            webmail.session_factory = PlaywrightWebmailSession
+        registry.register(webmail)
 
     return registry
 
