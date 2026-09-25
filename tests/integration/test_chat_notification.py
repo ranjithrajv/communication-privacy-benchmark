@@ -19,6 +19,7 @@ import pytest
 
 from privacy_benchmark.adapters.base import AdapterError
 from privacy_benchmark.adapters.chat_notification import (
+    MARKER_PATTERN,
     AppState,
     ChatNotificationAdapter,
     PostedNotification,
@@ -203,7 +204,13 @@ def test_the_delivery_carries_the_marker_the_check_looks_for(
     )
     assert len(gateway.deliveries) == 1
     assert gateway.deliveries[0]["number"] == NUMBER
-    assert gateway.deliveries[0]["body_marker"] is not None
+    delivered = gateway.deliveries[0]["body_marker"]
+    assert delivered is not None
+    # The shade is read by matching MARKER_PATTERN against the body the adapter sent, so
+    # a marker the pattern cannot recognise would leave the check unreachable while still
+    # looking like a clean delivery. This asserts the production precondition, not just
+    # that some marker was sent.
+    assert MARKER_PATTERN.search(delivered) is not None
 
 
 def test_the_device_is_restored_even_when_the_read_fails(
