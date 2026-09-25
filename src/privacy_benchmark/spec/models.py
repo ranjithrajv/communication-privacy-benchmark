@@ -318,6 +318,68 @@ class WebmailAutomation(StrictModel):
         return self
 
 
+class ChatAutomation(StrictModel):
+    """How the harness drives an installed chat client's own UI.
+
+    The same argument as :class:`WebmailAutomation`, on the other side of the install
+    boundary. Signal, WhatsApp, and Telegram share no UI vocabulary, so a recipe that
+    lives in the adapter would mean a branch per app and a re-read of the adapter to
+    learn what it will drive. As data, choosing an app is a change to a subject.
+
+    Selectors are Appium locator strings. They belong to the subject because a recipe
+    that quietly stopped matching its product would otherwise become a reported
+    ``pass``: nothing would be opened, the canary would record nothing, and the absence
+    would be indistinguishable from a client that fetched no remote content.
+
+    A locator that fails *before* the conversation is open is therefore a harness
+    ``error``, not a result. A locator that fails *after* the open is a real answer: the
+    conversation is demonstrably open and the message demonstrably absent, which is the
+    one thing the display assertion exists to distinguish.
+    """
+
+    #: The activity to launch. Named explicitly rather than inferred from the package,
+    #: because the launcher activity is part of the product's observable behavior and a
+    #: wrong guess is indistinguishable from the app not running.
+    app_activity: str = Field(min_length=1, max_length=512)
+    #: Must contain ``{number}``. See :meth:`require_the_conversation_to_be_addressed`.
+    conversation_selector: str = Field(min_length=1, max_length=1024)
+    #: The honey-message bubble inside the open conversation.
+    message_selector: str = Field(min_length=1, max_length=1024)
+    #: Optional. When present it is read to confirm the body rendered, which separates
+    #: "the bubble is on screen" from "the message content is on screen".
+    message_body_selector: str | None = Field(default=None, max_length=1024)
+    open_timeout_seconds: int = Field(default=60, ge=5, le=600)
+    display_timeout_seconds: int = Field(default=120, ge=5, le=900)
+
+    @model_validator(mode="after")
+    def require_the_conversation_to_be_addressed(self) -> Self:
+        # Without the placeholder the harness would open whatever conversation happened
+        # to be in view. The canary would still record a fetch, and it would be recorded
+        # against a message in a thread the reader never entered, which is a disclosure
+        # of somebody else's conversation rather than a measurement of this one.
+        if "{number}" not in self.conversation_selector:
+            raise ValueError(
+                "conversation_selector must contain a {number} placeholder so the "
+                "synthetic conversation is addressed rather than whichever is on screen"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def require_the_body_to_be_distinct_from_the_bubble(self) -> Self:
+        if (
+            self.message_body_selector is not None
+            and self.message_body_selector.strip() == self.message_selector.strip()
+        ):
+            raise ValueError(
+                "message_body_selector must not be the same locator as message_selector"
+            )
+        return self
+
+    def conversation_locator(self, number: str) -> str:
+        """The conversation locator addressed at one synthetic number."""
+        return self.conversation_selector.replace("{number}", number)
+
+
 class SubjectDefinition(StrictModel):
     schema_version: Literal["1alpha1"] = SCHEMA_VERSION
     subject_id: Identifier
@@ -328,7 +390,13 @@ class SubjectDefinition(StrictModel):
     account: AccountDefinition
     configuration: SubjectConfiguration = Field(default_factory=SubjectConfiguration)
     network_vantage: NetworkVantage
-    automation: WebmailAutomation | None = None
+    #: At most one of these two is set. They are mutually exclusive by construction: a
+    #: webmail subject authenticates against a service the harness drives in a browser,
+    #: while a chat subject installs a client the harness drives on a device. A subject
+    #: carrying both would describe two different products and every column derived from
+    #: it would be ambiguous.
+    webmail: WebmailAutomation | None = None
+    chat: ChatAutomation | None = None
     notes: str | None = Field(default=None, max_length=2000)
 
     @model_validator(mode="after")
@@ -336,8 +404,28 @@ class SubjectDefinition(StrictModel):
         # Webmail is a service the reader authenticates against, not a client they install.
         # A recipe with no service named would produce a row whose provider column is
         # empty, and a comparison row is meaningless without knowing which one it is.
-        if self.automation is not None and self.service is None:
+        if self.webmail is not None and self.service is None:
             raise ValueError("a subject carrying a webmail automation recipe must name its service")
+        return self
+
+    @model_validator(mode="after")
+    def require_a_package_for_a_driven_chat_subject(self) -> Self:
+        # The Appium session launches the client by package identifier, and the
+        # notification shade is read by filtering on it. A chat recipe without one has
+        # nothing to launch and nothing to filter, so the run could only ever report an
+        # unavailable device.
+        if self.chat is not None and not self.client.package_identifier:
+            raise ValueError(
+                "a subject carrying a chat automation recipe must name its client package"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def reject_two_automation_recipes(self) -> Self:
+        if self.webmail is not None and self.chat is not None:
+            raise ValueError(
+                "a subject carries either a webmail or a chat automation recipe, not both"
+            )
         return self
 
 

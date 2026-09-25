@@ -158,6 +158,37 @@ All notable changes to this project are documented in this file. The format foll
 
 ### Changed
 
+- The chat suite runs three repetitions instead of one, and the chat lane's subject job
+  is serialized with `max-parallel: 1` to match. One repetition cannot produce a Wilson
+  interval and can never report `flaky`, so the chat lane was structurally unable to use
+  the roll-up machinery the rest of the benchmark depends on. The serialization is not a
+  side effect: `operations.toml` provisions three devices *one per chat account slot*, and
+  a second repetition is a second hand on the *same* slot, so two of them running at once
+  would drive one device and one synthetic number with two concurrent sessions. Nothing in
+  the matrix can prove which slot a queued job lands on, so the whole matrix is serialized
+  rather than trusted to line up — the same tradeoff PrivacyTests.org accepts for its
+  mobile pool.
+- The chat lane's per-app UI knowledge moved out of the adapter and into the subject, as a
+  `ChatAutomation` recipe alongside the webmail one. `AppiumChatSession` previously took a
+  single `message_selector` that it used both to open a conversation and to find the
+  honey-message bubble, so those were one field doing two unrelated jobs, and a recipe that
+  lived in the adapter would have meant a branch per app. The recipe now separates the
+  activity to launch, the conversation locator, the bubble, and an optional body locator.
+  The invariant that matters is enforced rather than documented: `conversation_selector`
+  must contain a `{number}` placeholder, because a recipe that opened whatever thread
+  happened to be on screen would produce a canary observation belonging to a conversation
+  the reader never entered. A locator that fails *before* the conversation is open now
+  raises `RecipeUnavailable` rather than reporting an undisplayed message, since a recipe
+  that stopped matching its product would otherwise be indistinguishable from a client
+  that showed nothing — the same before/after distinction the webmail recipe already
+  draws. The checked-in chat subjects deliberately still carry no recipe, because no
+  selector has been verified against a physical device.
+- `SubjectDefinition.automation` is now `webmail`, and a sibling `chat` field carries the
+  new recipe. The old name implied a single automation concept and would have been
+  ambiguous the moment a second kind existed. A subject may carry at most one recipe, and a
+  chat recipe requires the client to name a package identifier: the Appium session launches
+  by package and the notification shade is read by filtering on it, so a recipe without one
+  could only ever report an unavailable device.
 - The preflight observation now reaches the run record. `ExecutionManifest` carries
   the `SubjectObservation` that was active for an execution, and `pt-bench execute`
   accepts `--observation`. Preflight was previously standalone: a workflow could run it

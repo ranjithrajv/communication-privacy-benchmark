@@ -135,19 +135,19 @@ class TestTheSubjectCarriesTheRecipe:
             network_vantage=NetworkVantage(
                 vantage_id="vantage-one", country_code="DE", network_type="residential"
             ),
-            automation=WebmailAutomation.model_validate(VALID),
+            webmail=WebmailAutomation.model_validate(VALID),
         )
 
     def _subject(self, **overrides: object) -> SubjectDefinition:
         return self._base().model_copy(update=overrides)
 
     def test_a_subject_may_carry_a_recipe(self) -> None:
-        assert self._subject().automation is not None
+        assert self._subject().webmail is not None
 
     def test_a_subject_may_omit_one(self) -> None:
         # Native clients have nothing to drive, so the recipe is optional. Only a subject
         # that claims to have one is held to the webmail rules.
-        assert self._subject(automation=None).automation is None
+        assert self._subject(webmail=None).webmail is None
 
     def test_a_recipe_without_a_named_service_is_refused(self) -> None:
         # A comparison row is meaningless without knowing which service it is, and a
@@ -160,7 +160,7 @@ class TestTheSubjectCarriesTheRecipe:
             SubjectDefinition.model_validate(payload)
 
     def test_the_recipe_is_frozen(self) -> None:
-        recipe = self._subject().automation
+        recipe = self._subject().webmail
         assert recipe is not None
         attribute = "entry_url"
         with pytest.raises(ValidationError):

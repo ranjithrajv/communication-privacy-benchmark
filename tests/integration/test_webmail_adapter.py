@@ -187,7 +187,7 @@ def _subject(*, with_recipe: bool = True) -> SubjectDefinition:
             country_code="DE",
             network_type="residential-unselected",
         ),
-        automation=WebmailAutomation(**RECIPE) if with_recipe else None,
+        webmail=WebmailAutomation(**RECIPE) if with_recipe else None,
     )
 
 

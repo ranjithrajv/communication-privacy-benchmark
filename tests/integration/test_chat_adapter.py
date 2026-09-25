@@ -346,12 +346,12 @@ def test_the_adapter_only_claims_the_checks_it_can_answer() -> None:
     assert adapter.adapter_id == "chat-appium"
 
 
-def test_an_appium_session_without_a_verified_selector_refuses_to_claim_a_display() -> None:
-    """Unverified selectors must produce inconclusive, never a fabricated pass."""
+def test_an_appium_session_without_a_verified_recipe_refuses_to_claim_a_display() -> None:
+    """No recipe must produce inconclusive, never a fabricated pass."""
 
     from privacy_benchmark.adapters.chat_appium import AppiumChatSession
 
     session = AppiumChatSession(appium_server="http://127.0.0.1:4723", package_identifier="x")
     assert session.display_honey_message() is False
-    with pytest.raises(AdapterError, match="no verified honey-message selector"):
+    with pytest.raises(AdapterError, match="no verified chat recipe"):
         session.deliver(NUMBER)

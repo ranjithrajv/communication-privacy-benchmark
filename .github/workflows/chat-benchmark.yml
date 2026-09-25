@@ -151,9 +151,18 @@ jobs:
     timeout-minutes: 45
     strategy:
       fail-fast: false
+      # Serialized. The bank is three devices, one per chat account slot, and a
+      # repetition is a second hand on the *same* slot: two of them running at once
+      # would drive one device and one synthetic number with two sessions, which
+      # GITHUB_ACTIONS_ARCHITECTURE.md §11 forbids. Parallelism is allowed across
+      # independent devices, but nothing here can prove which slot a queued job will
+      # land on, so the whole matrix is serialized rather than trusted to line up.
+      # This is the same tradeoff PrivacyTests.org accepts for its mobile pool, where
+      # serialization is why the September run took about nine hours.
+      max-parallel: 1
       matrix:
         subject: [signal-android-default, whatsapp-android-default, telegram-android-default]
-        repetition: [1]
+        repetition: [1, 2, 3]
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
