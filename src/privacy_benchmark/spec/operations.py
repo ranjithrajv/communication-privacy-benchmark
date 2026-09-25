@@ -61,9 +61,19 @@ class ReviewDecision(StrEnum):
 
 
 class PublicationTarget(StrEnum):
-    """Where canonical result bundles are published."""
+    """Where canonical result bundles are published.
+
+    ``github_pages`` is a reader-facing view over the same bundles a release carries, not
+    a second artifact of record. The receipt, the bundle digest, and the release asset
+    remain the evidence; a published page is a rendering of them and is regenerated from
+    the bundle rather than edited. It is a distinct value rather than an alias of
+    ``github_releases`` because a web page is a materially wider surface than a release
+    asset — indexable, cached indefinitely, and quotable out of context — so a policy that
+    permits one has not thereby permitted the other.
+    """
 
     GITHUB_RELEASES = "github_releases"
+    GITHUB_PAGES = "github_pages"
     PUBLIC_OBJECT_STORE = "public_object_store"
     NONE = "none"
 

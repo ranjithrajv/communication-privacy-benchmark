@@ -122,7 +122,10 @@ class TestCheckedInPolicy:
         schedule is wired, and claiming one would overstate what the lab can keep.
         """
 
-        assert policy.publication.target is PublicationTarget.GITHUB_RELEASES
+        # The named venue is a page, which is a materially wider surface than a release
+        # asset, so naming it is not enabling it: the policy is draft and every
+        # provider-terms review is pending, so the gate still refuses either way.
+        assert policy.publication.target is PublicationTarget.GITHUB_PAGES
         assert policy.publication.cadence == "never"
         assert policy.status is not PolicyStatus.ACTIVE
 

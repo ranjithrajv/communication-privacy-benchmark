@@ -27,11 +27,11 @@ redaction_rules = [
 notes = "Raw captures are deleted on a fixed schedule. Published evidence keeps only what a third party needs to re-derive the verdict, which is why redaction is mandatory rather than advisory. A published result must remain defensible years after the raw capture is gone."
 
 [publication]
-target = "github_releases"
+target = "github_pages"
 cadence = "never"
 append_only = true
 attested = true
-notes = "The target is named so the publication gate reports the outstanding obligations that actually matter rather than stopping at 'target is disabled'. Nothing can publish yet, and this does not change that: the policy is draft, every provider-terms review is pending, and the gate still requires a complete bundle carrying GitHub Actions provenance. 'cadence' stays 'never' because no schedule is wired; a scheduled run would claim a guarantee the lab cannot make until a first bundle exists. Revisit the target only if bundle size or retention outgrows a release asset."
+notes = "The target names the reader-facing venue, which is now a published GitHub Page rather than a release asset. The release remains the artifact of record: the receipt, the bundle digest, and the uploaded bundle are unchanged by this, and a page is regenerated from a bundle rather than edited. The two are not interchangeable, because a web page is indexable, cached indefinitely, and quotable without its run provenance, so permitting one is not permitting the other. Nothing can publish yet, and this does not change that: the policy is draft, every provider-terms review is pending, and the gate still requires a complete bundle carrying GitHub Actions provenance. 'cadence' stays 'never' because no schedule is wired; a scheduled run would claim a guarantee the lab cannot make until a first bundle exists. Revisit the target only if bundle size or retention outgrows a release asset."
 
 [[runner_lanes]]
 runner_class = "self_hosted_android"

@@ -134,7 +134,35 @@ pt-bench finalize --plan ... --execution-dir ...
 pt-bench aggregate --plan ... --executions ... --output ...
 pt-bench rollup --bundle ... --output ...
 pt-bench compare --baseline ... --candidate ... --output ... [--fail-on-regression]
+pt-bench report --bundle ... --output ... [--stdout]
+pt-bench site --bundle ... --output-dir ... [--root .]
 ```
+
+## The published page
+
+`pt-bench site` renders a bundle as a static GitHub Pages site. The page is a *view* over a
+bundle that cleared the publication gate, never a second artifact of record: it is regenerated
+from the bundle on every publish and never edited by hand, so it cannot drift from the
+evidence it describes. The release asset and its receipt remain what a reader cites.
+
+```bash
+uv run --locked pt-bench site --bundle build/run-bundle --output-dir build/site
+```
+
+The command fails closed on the operations policy, which must name `github_pages` as its
+publication target. A run that did not clear the gate still renders a page, and that page
+carries the refusal, so the reason is on the public record rather than inferred from a run
+that is simply absent. The command exits `2` in that case, so a scheduled lane can refuse to
+deploy it.
+
+Pages are static, so the "server" htmx requests from is the filesystem: every fragment is
+pre-rendered at build time and the page is fully readable with JavaScript disabled. htmx 4 is
+pinned to an exact version and loaded only on the pages that use it.
+
+A web page is a materially wider surface than a release asset — indexable, cached
+indefinitely, and quotable cell by cell without its run provenance — so the page keeps every
+rate beside the 95% interval that qualifies it, and marks a cell that establishes no product
+property in three channels rather than colour alone.
 
 ## Operational policy and the canonical gate
 

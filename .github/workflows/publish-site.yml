@@ -1,0 +1,159 @@
+name: publish-site
+
+# Publishes a rendered run bundle as the project's GitHub Page.
+#
+# The workflow does not decide what may be published. `pt-bench site` re-derives the
+# publication decision from the bundle and the checked-in operations policy, and the page it
+# writes carries that decision on its face. The gate below only decides whether to *deploy*
+# a page the generator already rendered, and the answer defaults to no.
+#
+# The `publish_refused` input exists because the generator's design and the gate's purpose
+# differ in one respect worth being explicit about. A run that fails the gate still gets a
+# page, and that page states its own refusal — a refused run shown is a record, while a
+# refused run that vanished is indistinguishable from one that never ran. Deploying such a
+# page misrepresents nothing, but it is still a deliberate widening of what is public, so it
+# is opt-in per run and never the default.
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_refused:
+        description: >-
+          Deploy the page even though the run did not clear the publication gate. The page
+          carries its own refusal banner listing every unmet obligation.
+        required: false
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      publish_refused:
+        description: Deploy a page that carries its own publication refusal.
+        required: false
+        type: boolean
+        default: false
+
+# Read-only at the workflow level. Only the deploy job needs to write, so the elevated
+# permissions are granted there and nowhere else: the build job runs third-party actions
+# and executes measured code, and it has no reason to hold a Pages or OIDC credential.
+permissions:
+  contents: read
+
+# One deployment at a time. Concurrent deploys would race on the Pages environment and the
+# later one could publish a site generated from a different bundle.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  BUNDLE: build/bundle
+  SITE: build/site
+  SUMMARY: build/site-summary.json
+
+jobs:
+  build:
+    name: Render the site
+    runs-on: ubuntu-latest
+    outputs:
+      publishable: ${{ steps.decision.outputs.publishable }}
+      bundle: ${{ steps.decision.outputs.bundle }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the project
+        run: uv sync --locked --all-extras --all-groups
+
+      - name: Report canonical readiness
+        # Exits 2 while any obligation is unmet, which is the current state and a correct
+        # one rather than a defect. Allowed to continue so the page can record why.
+        continue-on-error: true
+        run: uv run --locked pt-bench operations validate
+
+      - name: Build a run bundle
+        # The bundle is generated here rather than supplied, because `build/` is gitignored
+        # and a committed bundle would be generated run output. Planning inside Actions also
+        # means the plan records `github_actions` mode and this run's provenance, so the
+        # canonical half of the gate is satisfied by construction rather than by assertion.
+        run: |
+          uv run --locked pt-bench plan \
+            --suite suites/smoke/1.0.0/suite.toml \
+            --output build/smoke-plan.json
+          uv run --locked pt-bench execute \
+            --plan build/smoke-plan.json \
+            --subject fake-client \
+            --adapter fake \
+            --output-dir build/executions
+          uv run --locked pt-bench aggregate \
+            --plan build/smoke-plan.json \
+            --executions build/executions \
+            --output "$BUNDLE"
+
+      - name: Render the site
+        # Exits 2 for a run that did not clear the gate, having written the page and its
+        # refusal. The decision is read from the summary rather than the exit code so it is
+        # explicit instead of inferred from a status.
+        continue-on-error: true
+        run: |
+          uv run --locked pt-bench site \
+            --bundle "$BUNDLE" \
+            --output-dir "$SITE" \
+            --root . > "$SUMMARY" || true
+          cat "$SUMMARY"
+
+      - name: Record the publication decision
+        id: decision
+        run: |
+          if [ ! -s "$SUMMARY" ]; then
+            echo "::error::pt-bench site produced no summary, so no decision was reached."
+            echo "publishable=false" >> "$GITHUB_OUTPUT"
+            echo "bundle=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 -c 'import json,os; s=json.load(open(os.environ["SUMMARY"])); \
+            print("publishable=" + str(s["publishable"]).lower()); \
+            print("bundle=" + s["bundle"])' >> "$GITHUB_OUTPUT"
+
+      - name: Refuse to deploy an unpublishable run
+        if: >-
+          steps.decision.outputs.publishable != 'true'
+          && inputs.publish_refused != true
+        run: |
+          echo "::error::This run did not clear the publication gate, so no page is deployed."
+          echo "The page was still rendered with its refusal on it, so the reason is on the"
+          echo "record. Re-run with publish_refused=true to deploy it anyway, or satisfy the"
+          echo "obligations listed in the site summary."
+          exit 1
+
+      - name: Note that a refused run is being published
+        if: >-
+          steps.decision.outputs.publishable != 'true'
+          && inputs.publish_refused == true
+        run: |
+          echo "::warning::Publishing a page that carries its own publication refusal."
+          cat "$SUMMARY"
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: ${{ env.SITE }}
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    if: >-
+      always()
+      && needs.build.result == 'success'
+      && (needs.build.outputs.publishable == 'true' || inputs.publish_refused == true)
+    runs-on: ubuntu-latest
+    # Held here rather than at the workflow level so the build job, which executes measured
+    # code, never carries a Pages deployment or OIDC-issuing credential.
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
