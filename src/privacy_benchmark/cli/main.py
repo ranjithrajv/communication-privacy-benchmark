@@ -21,6 +21,7 @@ from privacy_benchmark.adapters.ept import (
 from privacy_benchmark.adapters.fake import FakeAdapter
 from privacy_benchmark.harness.aggregation import aggregate_run
 from privacy_benchmark.harness.analysis import (
+    load_bundle,
     render_rollup_matrix,
     summarize_rollup,
     write_comparison,
@@ -48,6 +49,7 @@ from privacy_benchmark.harness.preflight import (
     collect_macos_platform,
     observe_vantage,
 )
+from privacy_benchmark.harness.publishing import evaluate_publication, stage_publication
 from privacy_benchmark.spec.constants import PACKAGE_VERSION
 from privacy_benchmark.spec.models import (
     CompletionState,
@@ -261,6 +263,75 @@ def _observe_platform(
             source="none",
             detail={"reason": f"no collector for {operating_system}"},
         ),
+    )
+
+
+@main.command("publish")
+@click.option(
+    "--bundle",
+    type=click.Path(path_type=Path, file_okay=False, exists=True),
+    required=True,
+    help="A complete run bundle produced by 'pt-bench aggregate'.",
+)
+@click.option(
+    "--staging",
+    type=click.Path(path_type=Path, file_okay=False),
+    required=True,
+    help="Where to write the publication receipt. Must be outside the bundle.",
+)
+@click.option(
+    "--root",
+    type=click.Path(path_type=Path, file_okay=False),
+    default=Path(),
+    show_default=True,
+)
+def publish_command(*, bundle: Path, staging: Path, root: Path) -> None:
+    """Re-check a run bundle against the operational policy and record its publication.
+
+    Publication is fail-closed. Every unmet requirement is reported at once, so a
+    blocked lane lists all of its outstanding obligations instead of one per run. The
+    receipt is written only when the bundle clears the gate; the workflow that
+    follows performs the release upload and attestation.
+    """
+
+    try:
+        analysis = load_bundle(bundle)
+        registry = OperationsRegistry.load(root)
+        decision = evaluate_publication(analysis, registry)
+        if not decision.allowed:
+            _emit_json(
+                {
+                    "published": False,
+                    "bundle_id": str(analysis.manifest.bundle_id),
+                    "reasons": list(decision.reasons),
+                }
+            )
+            raise click.exceptions.Exit(2)
+        receipt = stage_publication(
+            analysis=analysis,
+            registry=registry,
+            staging_directory=staging,
+        )
+    except click.exceptions.Exit:
+        raise
+    except Exception as error:
+        raise click.ClickException(str(error)) from error
+
+    _emit_json(
+        {
+            "published": True,
+            "target": receipt.target,
+            "receipt": str(staging / f"{receipt.bundle_id}.receipt.json"),
+            "receipt_id": str(receipt.receipt_id),
+            "bundle_id": str(receipt.bundle_id),
+            "bundle_digest": receipt.bundle_digest,
+            "attested": receipt.attested,
+            "run": {
+                "repository": receipt.github.repository,
+                "run_id": receipt.github.run_id,
+                "run_attempt": receipt.github.run_attempt,
+            },
+        }
     )
 
 

@@ -450,6 +450,46 @@ class RunBundleManifest(StrictModel):
         return self
 
 
+class PublicationReceipt(StrictModel):
+    """Append-only record that one canonical bundle was offered for publication.
+
+    A receipt is not a benchmark result and never carries a finding of its own. It
+    records *that* a bundle cleared the operational gate, *which* bundle it was by
+    content digest, and under which policy revision, so a later reader can prove the
+    bundle was published deliberately rather than reconstructed after the fact. The
+    transport itself (release asset upload and attestation) is performed by the
+    publishing workflow; the receipt is the harness's own evidence that it offered the
+    bundle under a named policy.
+    """
+
+    schema_version: Literal["1alpha1"] = SCHEMA_VERSION
+    receipt_id: UUID
+    published_at: UtcDateTime
+    target: str = Field(min_length=1, max_length=100)
+    operations_id: str = Field(min_length=1, max_length=128)
+    operations_version: Version
+    bundle_id: UUID
+    #: SHA-256 over the bundle's ``checksums.sha256``, so the receipt identifies the
+    #: exact bytes that were offered and not merely the bundle's identifier.
+    bundle_digest: Sha256
+    plan_id: UUID
+    suite_id: Identifier
+    suite_version: Version
+    github: GitHubProvenance
+    subjects: tuple[SubjectRef, ...] = Field(min_length=1)
+    result_count: int = Field(ge=0)
+    evidence_count: int = Field(ge=0)
+    retention_policy_id: Identifier
+    attested: bool
+
+    @model_validator(mode="after")
+    def validate_receipt(self) -> Self:
+        keys = [(ref.subject_id, ref.subject_version) for ref in self.subjects]
+        if len(keys) != len(set(keys)):
+            raise ValueError("publication receipt subjects must be unique")
+        return self
+
+
 class StatusTally(StrictModel):
     status: ResultStatus
     count: int = Field(ge=1)
@@ -635,6 +675,7 @@ def schema_model_registry() -> dict[str, type[StrictModel]]:
         "evidence.schema.json": EvidenceRecord,
         "execution-manifest.schema.json": ExecutionManifest,
         "run-bundle.schema.json": RunBundleManifest,
+        "publication-receipt.schema.json": PublicationReceipt,
         "run-rollup.schema.json": RunRollup,
         "run-comparison.schema.json": RunComparison,
         # Imported lazily: the observation contract is declared next to the collectors
@@ -660,6 +701,7 @@ def schema_model_dependencies() -> dict[type[StrictModel], set[type[Any]]]:
         EvidenceRecord: {CollectorRef, RedactionPolicy},
         ExecutionManifest: {SubjectDefinition, ResultFileRef, GitHubProvenance},
         RunBundleManifest: {RunPlan, ExecutionManifest, SubjectRef},
+        PublicationReceipt: {GitHubProvenance, SubjectRef},
         CheckRollup: {CheckRef, SubjectRef},
         SubjectRollup: {SubjectRef, PlatformDefinition, CheckRollup},
         RunRollup: {SubjectRollup},
