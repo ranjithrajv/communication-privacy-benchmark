@@ -54,12 +54,12 @@ jobs:
           output-file: dist/sbom.cdx.json
 
       - name: Attest wheel
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698ae569d6 # v4.2.2
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: "dist/*.whl"
 
       - name: Attest source distribution
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698ae569d6 # v4.2.2
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: "dist/*.tar.gz"
 
