@@ -44,6 +44,14 @@ All notable changes to this project are documented in this file. The format foll
   combined into an AGPL-3.0-only distribution, so the contract is implemented from the
   written spec instead.
 
+  `starlette` carries an explicit floor in the gateway's own dependencies even though
+  FastAPI pulls it in. FastAPI asks only for `starlette>=0.46.0`, so the resolver will take
+  a release carrying ten advisories — including an unvalidated request path poisoning
+  `request.url.path` and `request.url.hostname`, which matters for a service whose job is
+  serving canary URLs and reporting which host was asked for. A resolver that cannot see
+  the advisory needs the floor stated, and the audit that caught it runs in this
+  distribution's own CI.
+
 - `email.referrer-disclosure` is answered by the EPT adapter, which required extending
   the gateway contract rather than the adapter alone. `GatewayTestState` gains
   `referer_captured` and `third_party_hosts`, and `GatewayObservation` gains a declared
