@@ -1,17 +1,16 @@
-name: Email benchmark
+name: Chat benchmark
 
-# Protected canonical measurement lane. This workflow drives real synthetic mail
-# accounts on physical Macs, so it is deliberately NOT triggered by pull requests:
-# fork code must never reach a device or account lane. It runs only when a maintainer
-# dispatches it, on its weekly schedule, or when the full-benchmark orchestrator calls
-# it.
+# Protected canonical measurement lane for the Android chat pilot. Like the email lane
+# this is never triggered by pull requests: fork code must never reach a physical device
+# or a messaging account.
 #
-# Until the operational policy is active this workflow is expected to fail at the
-# `plan` job, which is the gate. `pt-bench plan` refuses a canonical run for any
-# subject without an approved provider-terms review, and it reports every outstanding
-# subject at once. That refusal is the correct and intended state while the Google
-# review is pending, the reference vantage is unselected, and no runner lane exists.
-# A red run here means "the lane is not ready", not "the benchmark broke".
+# The email and chat lanes hold disjoint resources (Macs and mailboxes versus Android
+# devices and phone numbers), so they run under separate concurrency groups and do not
+# block one another.
+#
+# While the operational policy is draft this workflow is expected to fail at the `plan`
+# gate, which names every outstanding provider-terms review. A red run here means "the
+# lane is not ready", not "the benchmark broke".
 
 on:
   workflow_dispatch:
@@ -19,47 +18,43 @@ on:
       suite:
         description: Checked-in suite path to measure
         required: false
-        default: suites/email/1.0.0/suite.toml
+        default: suites/chat/1.0.0/suite.toml
         type: string
   schedule:
-    # Weekly, off-hour UTC minute. Deliberately not daily: account lock rates,
-    # provider throttling, and meaningful temporal variance are not yet understood.
-    - cron: "23 4 * * 2"
+    # Weekly, off-hour UTC minute, offset from the email lane.
+    - cron: "41 4 * * 3"
   workflow_call:
     inputs:
       suite:
         description: Checked-in suite path to measure
         required: false
-        default: suites/email/1.0.0/suite.toml
+        default: suites/chat/1.0.0/suite.toml
         type: string
 
 permissions:
   contents: read
 
-# One canonical email run at a time. Never cancel: cancelling mid-measurement would
-# abandon a synthetic account in an unknown state and could collide with the next run
-# on the same device or mailbox slot.
+# Never cancel: cancelling mid-measurement leaves a synthetic account in an unknown
+# state and can collide with the next run on the same device or number.
 concurrency:
-  group: email-benchmark
+  group: chat-benchmark
   cancel-in-progress: false
 
 env:
   UV_NO_PROGRESS: "1"
   UV_LINK_MODE: copy
-  PT_BENCH_EPT_GATEWAY_URL: ${{ secrets.PT_BENCH_EPT_GATEWAY_URL }}
-  PT_BENCH_EPT_GATEWAY_TOKEN: ${{ secrets.PT_BENCH_EPT_GATEWAY_TOKEN }}
-  PT_BENCH_EPT_MAILBOXES: ${{ secrets.PT_BENCH_EPT_MAILBOXES }}
+  PT_BENCH_CHAT_GATEWAY_URL: ${{ secrets.PT_BENCH_CHAT_GATEWAY_URL }}
+  PT_BENCH_CHAT_GATEWAY_TOKEN: ${{ secrets.PT_BENCH_CHAT_GATEWAY_TOKEN }}
+  PT_BENCH_CHAT_NUMBERS: ${{ secrets.PT_BENCH_CHAT_NUMBERS }}
 
 jobs:
   plan:
     name: Plan canonical run
-    # Hosted runner: planning reads checked-in definitions and the operations policy.
-    # It needs no device, so an unprovisioned lane fails here in seconds rather than
-    # leaving a self-hosted job queued against a runner that does not exist.
+    # Hosted runner. Planning needs no device, so an unprovisioned device bank fails
+    # here in seconds rather than leaving jobs queued against a runner that does not
+    # exist. This job is the canonical gate.
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    outputs:
-      suite: ${{ steps.select.outputs.suite }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -82,14 +77,13 @@ jobs:
         run: uv sync --locked --all-extras --all-groups
 
       - name: Select the suite
-        # The dispatch input is untrusted text, so it is passed through the environment
-        # and validated as a path inside the repository rather than interpolated into
-        # the shell. It must name a suite that is actually checked in.
+        # The dispatch input is untrusted text: it is passed through the environment and
+        # validated as a path inside the repository, never interpolated into the shell.
         id: select
         env:
           REQUESTED_SUITE: ${{ inputs.suite }}
         run: |
-          suite="${REQUESTED_SUITE:-suites/email/1.0.0/suite.toml}"
+          suite="${REQUESTED_SUITE:-suites/chat/1.0.0/suite.toml}"
           case "$suite" in
             /*|*..*)
               echo "suite must be a relative path inside the repository: $suite" >&2
@@ -104,7 +98,7 @@ jobs:
 
       - name: Validate the operational policy
         # Exit 2 means the policy is well-formed but canonical measurement is still
-        # blocked, which the next step reports in detail. Only exit 1 is fatal here.
+        # blocked, which the plan step reports in detail. Only exit 1 is fatal.
         run: |
           status=0
           uv run --locked pt-bench operations validate || status=$?
@@ -114,8 +108,8 @@ jobs:
           fi
 
       - name: Build the run plan
-        # This is the canonical gate. It refuses any subject without an approved
-        # provider-terms review and names every outstanding subject in one failure.
+        # The canonical gate: refuses any subject without an approved provider-terms
+        # review and names every outstanding subject in one failure.
         env:
           SUITE: ${{ steps.select.outputs.suite }}
         run: uv run --locked pt-bench plan --suite "$SUITE" --output build/plan.json
@@ -126,15 +120,13 @@ jobs:
           SUITE: ${{ steps.select.outputs.suite }}
         run: |
           {
-            echo "## Email benchmark plan"
+            echo "## Chat benchmark plan"
             echo
             echo "- Suite: \`$SUITE\`"
             echo "- Run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           } >> "$GITHUB_STEP_SUMMARY"
           if [ -f build/plan.json ]; then
             echo "- Plan: created" >> "$GITHUB_STEP_SUMMARY"
-            uv run --locked pt-bench schemas validate --kind run-plan build/plan.json \
-              >> "$GITHUB_STEP_SUMMARY" || true
           else
             echo "- Plan: **refused** (see the job log for the outstanding obligations)" \
               >> "$GITHUB_STEP_SUMMARY"
@@ -144,7 +136,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: email-benchmark-plan
+          name: chat-benchmark-plan
           path: build/plan.json
           if-no-files-found: warn
           retention-days: 90
@@ -152,16 +144,16 @@ jobs:
   subject:
     name: Measure ${{ matrix.subject }} repetition ${{ matrix.repetition }}
     needs: plan
-    # Physical Mac lane. Unreachable while the plan gate refuses, because `needs`
-    # short-circuits; when the lane is provisioned this is the only job that touches a
-    # real account or device.
-    runs-on: [self-hosted, macOS, apple-mail-device-bank]
+    # Physical Android device bank. Unreachable while the plan gate refuses, because
+    # `needs` short-circuits; when provisioned this is the only job that touches a real
+    # account or device.
+    runs-on: [self-hosted, Linux, android-device-bank]
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        subject: [apple-mail-gmail-consumer, thunderbird-gmail-consumer]
-        repetition: [1, 2, 3]
+        subject: [signal-android-default, whatsapp-android-default, telegram-android-default]
+        repetition: [1]
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -186,19 +178,35 @@ jobs:
       - name: Download the run plan
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: email-benchmark-plan
+          name: chat-benchmark-plan
           path: build
 
       - name: Observe the measurement device
-        # Records the Mail/Thunderbird build, macOS build, and hardware model that the
-        # subject intentionally left unset, so a published row states what was actually
-        # measured rather than what was assumed at declaration time.
+        # The architecture lists device-preflight as its own job. It runs here instead,
+        # in the same job as the measurement, so the observation necessarily describes
+        # the exact device that produced the result. A separate job could be scheduled
+        # onto a different device from the same bank, and a row whose device model did
+        # not match its measurement is worse than no observation at all.
+        #
+        # Records the installed app version, build, package hash, device model, and OS
+        # build that the subject intentionally left unset at declaration time.
+        env:
+          SUBJECT: ${{ matrix.subject }}
         run: |
+          serial="$(adb devices | awk 'NR>1 && $2=="device" {print $1; exit}')"
+          if [ -z "$serial" ]; then
+            echo "no adb device is attached to this runner" >&2
+            exit 1
+          fi
           uv run --locked pt-bench preflight \
-            --subject "${{ matrix.subject }}@1.0.0" \
+            --subject "$SUBJECT@1.0.0" \
+            --adb-serial "$serial" \
             --output build/observation.json
 
       - name: Measure one repetition
+        # No --adapter: each check is answered by the adapter its own definition names.
+        # The chat suite deliberately mixes chat-appium and chat-notification, which a
+        # single global adapter could not serve.
         env:
           SUBJECT: ${{ matrix.subject }}
           REPETITION: ${{ matrix.repetition }}
@@ -206,7 +214,6 @@ jobs:
           uv run --locked pt-bench execute \
             --plan build/plan.json \
             --subject "$SUBJECT" \
-            --adapter ept \
             --repetition "$REPETITION" \
             --output-dir build/executions
 
@@ -223,7 +230,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: email-execution-${{ matrix.subject }}-${{ matrix.repetition }}
+          name: chat-execution-${{ matrix.subject }}-${{ matrix.repetition }}
           path: build/executions
           if-no-files-found: warn
           retention-days: 30
@@ -231,9 +238,9 @@ jobs:
   aggregate:
     name: Aggregate the run
     needs: [plan, subject]
-    # Runs even when a subject failed or was cancelled, so an incomplete run is
-    # represented as an incomplete bundle rather than silently vanishing. Missing
-    # subjects become `error`/`not_tested` in the bundle, never a product `fail`.
+    # Runs even when a subject failed or was cancelled, so an incomplete run is visible
+    # as an incomplete bundle rather than silently absent. Missing subjects become
+    # `error`/`not_tested`, never a product `fail`.
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -262,32 +269,30 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
-          name: email-benchmark-plan
+          name: chat-benchmark-plan
           path: build
 
       - name: Stop when the plan gate refused
-        # When the plan gate refuses there is no plan and nothing to aggregate. This job
-        # still runs, per the architecture, so an incomplete run is visible rather than
-        # silently absent, but it must not report a misleading missing-artifact failure.
-        # `final-health-check` is the single authoritative verdict.
+        # The plan gate refuses there is no plan and nothing to aggregate. This job still
+        # runs so an incomplete run is visible, but it must not report a misleading
+        # missing-artifact failure. `final-health-check` is the authoritative verdict.
         if: hashFiles('build/plan.json') == ''
         run: |
           echo "The plan gate refused this run, so there is nothing to aggregate." \
             >> "$GITHUB_STEP_SUMMARY"
-          echo "skipped_aggregate=true" >> "$GITHUB_ENV"
 
       - name: Download every available execution
         if: hashFiles('build/plan.json') != ''
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
-          pattern: email-execution-*
+          pattern: chat-execution-*
           path: build/executions
           merge-multiple: true
 
       - name: Aggregate
-        # Exit 2 means the bundle is valid but incomplete, which is reported rather
-        # than hidden. Only a genuine aggregation failure is fatal here.
+        # Exit 2 means the bundle is valid but incomplete, which is reported rather than
+        # hidden. Only a genuine aggregation failure is fatal here.
         if: hashFiles('build/plan.json') != ''
         run: |
           status=0
@@ -299,7 +304,6 @@ jobs:
             echo "aggregation failed" >&2
             exit "$status"
           fi
-          echo "aggregate_exit=$status" >> "$GITHUB_ENV"
 
       - name: Validate the bundle contract
         if: hashFiles('build/bundle/manifest.json') != ''
@@ -309,7 +313,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: email-benchmark-bundle
+          name: chat-benchmark-bundle
           path: build/bundle
           if-no-files-found: warn
           retention-days: 90
@@ -343,15 +347,13 @@ jobs:
 
       - name: Download the run bundle
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: email-benchmark-bundle
-          path: build
         continue-on-error: true
+        with:
+          name: chat-benchmark-bundle
+          path: build
 
       - name: Offer the bundle for publication
-        # Fail-closed. Every unmet requirement is reported at once. While the policy is
-        # draft this exits 2 with the full list of outstanding obligations, which is the
-        # intended state until the lane is provisioned.
+        # Fail-closed. Every unmet requirement is reported at once.
         run: |
           if [ ! -f build/bundle/manifest.json ]; then
             echo '{"published": false, "reasons": ["no run bundle was produced"]}' \
@@ -366,7 +368,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: email-benchmark-receipt
+          name: chat-benchmark-receipt
           path: build/publication
           if-no-files-found: warn
           retention-days: 90
@@ -374,10 +376,8 @@ jobs:
   transport:
     name: Publish the bundle
     needs: [plan, aggregate, publish]
-    # Reached only when the harness actually produced a publication receipt, which it
-    # does only for a bundle that cleared every operational requirement. The reusable
-    # transport re-checks the receipt before moving any bytes, so a missing receipt is a
-    # hard stop rather than an upload of unvetted data.
+    # Reached only when the harness produced a publication receipt, which it does only
+    # for a bundle that cleared every operational requirement.
     if: needs.publish.result == 'success'
     uses: ./.github/workflows/_publish-benchmark.yml
     # Granted only to the reusable transport, which re-checks the receipt before moving
@@ -387,9 +387,9 @@ jobs:
       id-token: write
       attestations: write
     with:
-      lane: email
-      bundle-artifact: email-benchmark-bundle
-      receipt-artifact: email-benchmark-receipt
+      lane: chat
+      bundle-artifact: chat-benchmark-bundle
+      receipt-artifact: chat-benchmark-receipt
       release-tag: benchmark-data
 
   final-health-check:
