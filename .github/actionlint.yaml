@@ -1,0 +1,12 @@
+# Self-hosted runner labels declared in operations/1.0.0/operations.toml.
+#
+# The measurement lanes do not exist yet, so actionlint cannot resolve these labels
+# against a real runner. Declaring them here keeps the workflow-lint gate meaningful
+# now and documents the exact labels a provisioned runner must carry. A runner whose
+# labels drift from this list will simply never be matched, which fails loudly at the
+# plan gate rather than silently measuring on the wrong device.
+self-hosted-runner:
+  labels:
+    - apple-mail-device-bank
+    - android-device-bank
+    - reference-vantage-host
