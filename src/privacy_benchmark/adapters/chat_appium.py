@@ -50,6 +50,7 @@ from privacy_benchmark.adapters.base import (
 )
 from privacy_benchmark.harness.context import ExecutionContext
 from privacy_benchmark.spec.models import (
+    ChatAutomation,
     CheckDefinition,
     EvidenceClass,
     EvidenceKind,
@@ -194,57 +195,95 @@ class ChatSession(Protocol):
     def close(self) -> None: ...
 
 
+class RecipeUnavailable(AdapterError):
+    """The subject's recipe could not drive its chat client.
+
+    Raised only for a locator that does not resolve *before* the conversation is open,
+    where the recipe is provably the problem. After the open the same symptom is a real
+    answer -- the conversation is demonstrably open and the message demonstrably absent --
+    so that case is reported as an unasserted display instead, never as this error.
+    """
+
+
 @dataclass(slots=True)
 class AppiumChatSession:
     """A minimal Appium-backed session for the protected Android lane.
 
-    Deliberately thin. It launches the subject's own client and confirms the
-    conversation is foregrounded, which is the part that is identical across the three
-    subjects. Per-app selectors for locating the honey-message bubble are *not* written
-    here: they cannot be verified without a physical device, and an unverified selector
-    would fail in a way that looks like a clean result. ``display_honey_message``
-    therefore reports ``False`` until a verified selector is supplied, which makes the
-    adapter report ``inconclusive`` rather than a fabricated pass.
+    Deliberately thin. Everything identical across the three subjects stays here: the
+    driver setup, and the order of operations. Everything that differs between them — the
+    activity to launch, how the synthetic conversation is addressed, and where the
+    honey-message bubble lives — is carried by the subject as a :class:`ChatAutomation`
+    recipe rather than written here. That is what makes adding an app a change to a
+    checked-in subject instead of a branch of this adapter, and it means the recipe can
+    be reviewed without reading a line of driver code.
+
+    No recipe is still the safe state. A session without one raises from ``deliver``
+    before a driver is ever opened, because standing up a device to fail afterwards
+    wastes the lane and hides the real reason.
     """
 
     appium_server: str
     package_identifier: str
-    app_activity: str | None = None
     device_name: str | None = None
     platform_version: str | None = None
-    message_selector: str | None = None
+    recipe: ChatAutomation | None = None
 
     def deliver(self, number: str) -> None:
-        # Checked before a driver session is opened: without a verified selector the call
-        # cannot succeed, and standing up a device session only to fail wastes the lane
-        # and hides the real reason.
-        if self.message_selector is None:
+        # Checked before a driver session is opened: without a recipe the call cannot
+        # succeed, and standing up a device session only to fail wastes the lane and
+        # hides the real reason.
+        if self.recipe is None:
             raise AdapterError(
-                f"no verified honey-message selector is configured for "
+                f"no verified chat recipe is configured for "
                 f"{self.package_identifier}; a session without one cannot assert that "
                 f"the message was displayed, so the result would be a fabricated pass"
             )
         session = self._driver()
         try:
-            session.implicitly_wait(10)
+            session.implicitly_wait(self.recipe.open_timeout_seconds)
             # Opening the conversation is app-specific and is the reason each subject
-            # needs its own session; the target is the synthetic number, never a real
-            # contact.
-            session.find_element("id", self.message_selector).click()
+            # needs its own recipe; the target is the synthetic number, never a real
+            # contact, and the recipe is required to address it by that number.
+            self._locate(session, self.recipe.conversation_locator(number)).click()
+        except AdapterError:
+            raise
+        except Exception as error:
+            # Before the conversation is open, an unresolvable locator is a broken recipe
+            # rather than a measurement. Reporting it as "nothing was displayed" would
+            # make a recipe that stopped matching its product look exactly like a client
+            # that showed no message, which is the confusion this lane exists to avoid.
+            raise RecipeUnavailable(
+                f"the chat recipe for {self.package_identifier} could not open the "
+                f"synthetic conversation: {error}"
+            ) from error
         finally:
             self._quit(session)
 
     def display_honey_message(self) -> bool:
-        if self.message_selector is None:
+        if self.recipe is None:
             return False
         session = self._driver()
         try:
-            return bool(session.find_element("id", self.message_selector).is_displayed())
+            locator = self._locate(session, self.recipe.message_selector)
+            return bool(locator.is_displayed())
         except Exception:
             # Any driver failure is an unavailable session, never a clean result.
             return False
         finally:
             self._quit(session)
+
+    @staticmethod
+    def _locate(session: Any, locator: str) -> Any:
+        """Resolve one Appium locator, preferring an id and falling back to a full one.
+
+        A recipe states a locator the way Appium documents it, which is rarely a bare id.
+        Callers that only need an element get the element rather than each of them
+        re-implementing the lookup strategy.
+        """
+        strategy, _, value = locator.partition(":")
+        if value and strategy in {"id", "xpath", "accessibility id", "android uiautomator"}:
+            return session.find_element(strategy, value)
+        return session.find_element("xpath", locator)
 
     def close(self) -> None:
         return None
@@ -258,17 +297,19 @@ class AppiumChatSession:
             raise AdapterError(
                 "Appium-Python-Client is required for the chat lane; install the 'automation' extra"
             ) from error
-        options = UiAutomator2Options().load_capabilities(
-            {
-                "platformName": "Android",
-                "appium:automationName": "UiAutomator2",
-                "appium:appPackage": self.package_identifier,
-                "appium:udid": self.device_name,
-                "appium:platformVersion": self.platform_version,
-            }
-        )
-        if self.app_activity is not None:
-            options.load_capabilities({"appium:appActivity": self.app_activity})
+        capabilities: dict[str, Any] = {
+            "platformName": "Android",
+            "appium:automationName": "UiAutomator2",
+            "appium:appPackage": self.package_identifier,
+            "appium:udid": self.device_name,
+            "appium:platformVersion": self.platform_version,
+        }
+        # The launch activity comes from the recipe, so it is the subject's to state
+        # rather than the adapter's to guess. Omitted only when there is no recipe at
+        # all, which `deliver` already refuses before reaching this point.
+        if self.recipe is not None:
+            capabilities["appium:appActivity"] = self.recipe.app_activity
+        options = UiAutomator2Options().load_capabilities(capabilities)
         return webdriver.Remote(self.appium_server, options=options)
 
     @staticmethod

@@ -241,7 +241,7 @@ class WebmailPlaywrightAdapter:
                 details={"check_id": check.check_id, "session": False},
             )
 
-        recipe = context.subject.automation
+        recipe = context.subject.webmail
         if recipe is None:
             return AdapterOutcome(
                 status=ResultStatus.INCONCLUSIVE,

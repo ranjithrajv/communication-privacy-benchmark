@@ -10,4 +10,4 @@ subjects = [
   "whatsapp-android-default@1.0.0",
   "telegram-android-default@1.0.0",
 ]
-repetitions = 1
+repetitions = 3

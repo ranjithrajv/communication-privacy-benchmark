@@ -36,6 +36,64 @@
       "title": "AccountDefinition",
       "type": "object"
     },
+    "ChatAutomation": {
+      "additionalProperties": false,
+      "description": "How the harness drives an installed chat client's own UI.\n\nThe same argument as :class:`WebmailAutomation`, on the other side of the install\nboundary. Signal, WhatsApp, and Telegram share no UI vocabulary, so a recipe that\nlives in the adapter would mean a branch per app and a re-read of the adapter to\nlearn what it will drive. As data, choosing an app is a change to a subject.\n\nSelectors are Appium locator strings. They belong to the subject because a recipe\nthat quietly stopped matching its product would otherwise become a reported\n``pass``: nothing would be opened, the canary would record nothing, and the absence\nwould be indistinguishable from a client that fetched no remote content.\n\nA locator that fails *before* the conversation is open is therefore a harness\n``error``, not a result. A locator that fails *after* the open is a real answer: the\nconversation is demonstrably open and the message demonstrably absent, which is the\none thing the display assertion exists to distinguish.",
+      "properties": {
+        "app_activity": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "App Activity",
+          "type": "string"
+        },
+        "conversation_selector": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Conversation Selector",
+          "type": "string"
+        },
+        "display_timeout_seconds": {
+          "default": 120,
+          "maximum": 900,
+          "minimum": 5,
+          "title": "Display Timeout Seconds",
+          "type": "integer"
+        },
+        "message_body_selector": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message Body Selector"
+        },
+        "message_selector": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Message Selector",
+          "type": "string"
+        },
+        "open_timeout_seconds": {
+          "default": 60,
+          "maximum": 600,
+          "minimum": 5,
+          "title": "Open Timeout Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "app_activity",
+        "conversation_selector",
+        "message_selector"
+      ],
+      "title": "ChatAutomation",
+      "type": "object"
+    },
     "ClientObservation": {
       "additionalProperties": false,
       "description": "What was really running, as opposed to what the definition asserts.",
@@ -746,10 +804,10 @@
         "account": {
           "$ref": "#/$defs/AccountDefinition"
         },
-        "automation": {
+        "chat": {
           "anyOf": [
             {
-              "$ref": "#/$defs/WebmailAutomation"
+              "$ref": "#/$defs/ChatAutomation"
             },
             {
               "type": "null"
@@ -812,6 +870,17 @@
           "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
           "title": "Subject Version",
           "type": "string"
+        },
+        "webmail": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WebmailAutomation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
