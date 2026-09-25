@@ -1,0 +1,191 @@
+{
+  "$defs": {
+    "CollectorRef": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "CollectorRef",
+      "type": "object"
+    },
+    "EvidenceClass": {
+      "enum": [
+        "measured",
+        "static",
+        "documented",
+        "human_review",
+        "synthetic"
+      ],
+      "title": "EvidenceClass",
+      "type": "string"
+    },
+    "EvidenceKind": {
+      "enum": [
+        "canary_event",
+        "dns_log",
+        "tls_metadata",
+        "packet_capture",
+        "browser_trace",
+        "screenshot",
+        "app_log",
+        "page_source",
+        "static_analysis",
+        "policy_document",
+        "audit_document",
+        "human_review",
+        "other"
+      ],
+      "title": "EvidenceKind",
+      "type": "string"
+    },
+    "JsonValue": {},
+    "RedactionPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "applied": {
+          "title": "Applied",
+          "type": "boolean"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes"
+        },
+        "policy_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "raw_retention": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Raw Retention",
+          "type": "string"
+        }
+      },
+      "required": [
+        "policy_id",
+        "applied",
+        "raw_retention"
+      ],
+      "title": "RedactionPolicy",
+      "type": "object"
+    }
+  },
+  "$id": "urn:communication-privacy-benchmark:schema:evidence:1alpha1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "collected_at": {
+      "format": "date-time",
+      "title": "Collected At",
+      "type": "string"
+    },
+    "collector": {
+      "$ref": "#/$defs/CollectorRef"
+    },
+    "evidence_class": {
+      "$ref": "#/$defs/EvidenceClass"
+    },
+    "evidence_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$",
+      "title": "Evidence Id",
+      "type": "string"
+    },
+    "execution_id": {
+      "format": "uuid",
+      "title": "Execution Id",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/EvidenceKind"
+    },
+    "media_type": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Media Type",
+      "type": "string"
+    },
+    "metadata": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "title": "Metadata",
+      "type": "object"
+    },
+    "redaction": {
+      "$ref": "#/$defs/RedactionPolicy"
+    },
+    "schema_version": {
+      "const": "1alpha1",
+      "default": "1alpha1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Sha256",
+      "type": "string"
+    },
+    "size_bytes": {
+      "minimum": 0,
+      "title": "Size Bytes",
+      "type": "integer"
+    },
+    "source_uri": {
+      "anyOf": [
+        {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Uri"
+    }
+  },
+  "required": [
+    "evidence_id",
+    "execution_id",
+    "evidence_class",
+    "kind",
+    "media_type",
+    "sha256",
+    "size_bytes",
+    "collected_at",
+    "collector",
+    "redaction"
+  ],
+  "title": "EvidenceRecord",
+  "type": "object"
+}

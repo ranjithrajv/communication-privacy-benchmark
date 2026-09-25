@@ -1,0 +1,17 @@
+schema_version = "1alpha1"
+check_id = "harness.smoke"
+version = "1.0.0"
+status = "active"
+title = "Harness execution smoke test"
+description = "Validates planning, adapter execution, result finalization, and aggregation with a deterministic fake adapter. This check is never a product privacy result."
+channel = "harness"
+evidence_class = "synthetic"
+adapter_id = "fake"
+canonical = false
+timeout_seconds = 60
+runner_classes = ["static_hosted"]
+
+[[threat_models]]
+id = "harness.integrity"
+title = "Harness integrity"
+description = "Confirms that a GitHub Actions execution produces a complete, schema-valid, and content-addressed result bundle without using a real account."

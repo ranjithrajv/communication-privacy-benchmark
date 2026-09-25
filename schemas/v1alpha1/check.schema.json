@@ -1,0 +1,176 @@
+{
+  "$defs": {
+    "Channel": {
+      "enum": [
+        "harness",
+        "email",
+        "webmail",
+        "chat",
+        "static",
+        "documented",
+        "human_review"
+      ],
+      "title": "Channel",
+      "type": "string"
+    },
+    "EvidenceClass": {
+      "enum": [
+        "measured",
+        "static",
+        "documented",
+        "human_review",
+        "synthetic"
+      ],
+      "title": "EvidenceClass",
+      "type": "string"
+    },
+    "LifecycleStatus": {
+      "enum": [
+        "draft",
+        "active",
+        "deprecated",
+        "retired"
+      ],
+      "title": "LifecycleStatus",
+      "type": "string"
+    },
+    "RunnerClass": {
+      "enum": [
+        "github_hosted_ubuntu",
+        "self_hosted_macos",
+        "self_hosted_android",
+        "self_hosted_ios",
+        "self_hosted_regional",
+        "static_hosted"
+      ],
+      "title": "RunnerClass",
+      "type": "string"
+    },
+    "ThreatModelRef": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "description"
+      ],
+      "title": "ThreatModelRef",
+      "type": "object"
+    }
+  },
+  "$id": "urn:communication-privacy-benchmark:schema:check:1alpha1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "adapter_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$",
+      "title": "Adapter Id",
+      "type": "string"
+    },
+    "canonical": {
+      "default": true,
+      "title": "Canonical",
+      "type": "boolean"
+    },
+    "channel": {
+      "$ref": "#/$defs/Channel"
+    },
+    "check_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$",
+      "title": "Check Id",
+      "type": "string"
+    },
+    "description": {
+      "maxLength": 4000,
+      "minLength": 1,
+      "title": "Description",
+      "type": "string"
+    },
+    "evidence_class": {
+      "$ref": "#/$defs/EvidenceClass"
+    },
+    "runner_classes": {
+      "items": {
+        "$ref": "#/$defs/RunnerClass"
+      },
+      "minItems": 1,
+      "title": "Runner Classes",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "1alpha1",
+      "default": "1alpha1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/LifecycleStatus",
+      "default": "draft"
+    },
+    "threat_models": {
+      "items": {
+        "$ref": "#/$defs/ThreatModelRef"
+      },
+      "minItems": 1,
+      "title": "Threat Models",
+      "type": "array"
+    },
+    "timeout_seconds": {
+      "default": 1800,
+      "maximum": 21600,
+      "minimum": 30,
+      "title": "Timeout Seconds",
+      "type": "integer"
+    },
+    "title": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "version": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "check_id",
+    "version",
+    "title",
+    "description",
+    "channel",
+    "evidence_class",
+    "threat_models",
+    "runner_classes",
+    "adapter_id"
+  ],
+  "title": "CheckDefinition",
+  "type": "object"
+}

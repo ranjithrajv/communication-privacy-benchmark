@@ -1,0 +1,430 @@
+{
+  "$defs": {
+    "AccountDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "account_type": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Account Type",
+          "type": "string"
+        },
+        "authentication_method": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Authentication Method",
+          "type": "string"
+        },
+        "slot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$",
+          "title": "Slot Id",
+          "type": "string"
+        },
+        "synthetic": {
+          "default": true,
+          "title": "Synthetic",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "account_type",
+        "slot_id",
+        "authentication_method"
+      ],
+      "title": "AccountDefinition",
+      "type": "object"
+    },
+    "ComponentRef": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Artifact Sha256"
+        },
+        "build": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Build"
+        },
+        "distribution_channel": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Distribution Channel"
+        },
+        "name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "package_identifier": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Package Identifier"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "ComponentRef",
+      "type": "object"
+    },
+    "ConfigurationSetting": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "sensitive": {
+          "default": false,
+          "title": "Sensitive",
+          "type": "boolean"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "value_redacted": {
+          "default": false,
+          "title": "Value Redacted",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "ConfigurationSetting",
+      "type": "object"
+    },
+    "NetworkVantage": {
+      "additionalProperties": false,
+      "properties": {
+        "asn": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Asn"
+        },
+        "country_code": {
+          "maxLength": 2,
+          "minLength": 2,
+          "pattern": "^[A-Z]{2}$",
+          "title": "Country Code",
+          "type": "string"
+        },
+        "network_type": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Network Type",
+          "type": "string"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes"
+        },
+        "proxy": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Proxy"
+        },
+        "public_ip_observed": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Public Ip Observed"
+        },
+        "vantage_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$",
+          "title": "Vantage Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "vantage_id",
+        "country_code",
+        "network_type"
+      ],
+      "title": "NetworkVantage",
+      "type": "object"
+    },
+    "PlatformDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "architecture": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Architecture"
+        },
+        "build": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Build"
+        },
+        "device_model": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Device Model"
+        },
+        "is_emulator": {
+          "default": false,
+          "title": "Is Emulator",
+          "type": "boolean"
+        },
+        "os": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Os",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "os"
+      ],
+      "title": "PlatformDefinition",
+      "type": "object"
+    },
+    "SubjectConfiguration": {
+      "additionalProperties": false,
+      "properties": {
+        "profile": {
+          "default": "default",
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Profile",
+          "type": "string"
+        },
+        "settings": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ConfigurationSetting"
+          },
+          "title": "Settings",
+          "type": "array"
+        }
+      },
+      "title": "SubjectConfiguration",
+      "type": "object"
+    }
+  },
+  "$id": "urn:communication-privacy-benchmark:schema:subject:1alpha1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "account": {
+      "$ref": "#/$defs/AccountDefinition"
+    },
+    "client": {
+      "$ref": "#/$defs/ComponentRef"
+    },
+    "configuration": {
+      "$ref": "#/$defs/SubjectConfiguration"
+    },
+    "network_vantage": {
+      "$ref": "#/$defs/NetworkVantage"
+    },
+    "notes": {
+      "anyOf": [
+        {
+          "maxLength": 2000,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Notes"
+    },
+    "platform": {
+      "$ref": "#/$defs/PlatformDefinition"
+    },
+    "schema_version": {
+      "const": "1alpha1",
+      "default": "1alpha1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "service": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ComponentRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "subject_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$",
+      "title": "Subject Id",
+      "type": "string"
+    },
+    "subject_version": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+      "title": "Subject Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "subject_id",
+    "subject_version",
+    "client",
+    "platform",
+    "account",
+    "network_vantage"
+  ],
+  "title": "SubjectDefinition",
+  "type": "object"
+}

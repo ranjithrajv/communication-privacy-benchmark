@@ -1,0 +1,159 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_NO_PROGRESS: "1"
+  UV_LINK_MODE: copy
+
+jobs:
+  quality:
+    name: Schemas, types, and tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install locked dependencies
+        run: uv sync --locked --all-extras --all-groups
+
+      - name: Validate definition registry
+        run: uv run --locked pt-bench registry validate
+
+      - name: Check committed JSON Schemas
+        run: uv run --locked pt-bench schemas export --output-dir schemas/v1alpha1 --check
+
+      - name: Check formatting
+        run: uv run --locked ruff format --check .
+
+      - name: Lint
+        run: uv run --locked ruff check .
+
+      - name: Type check
+        run: uv run --locked mypy src tests
+
+      - name: Test
+        run: >-
+          uv run --locked pytest
+          --cov=privacy_benchmark
+          --cov-report=term-missing
+          --cov-report=xml
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-${{ github.run_id }}-${{ github.run_attempt }}
+          path: coverage.xml
+          if-no-files-found: error
+          retention-days: 14
+
+  package:
+    name: Build and install distributions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
+      - name: Build wheel and source distribution
+        run: uv build
+
+      - name: Install wheel into a clean environment
+        run: |
+          uv venv /tmp/pt-bench-wheel --python "$(cat .python-version)"
+          uv pip install --python /tmp/pt-bench-wheel/bin/python dist/*.whl
+          /tmp/pt-bench-wheel/bin/pt-bench --version
+          /tmp/pt-bench-wheel/bin/pt-bench --help
+
+      - name: Generate software bill of materials
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: dist/sbom.cdx.json
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: distributions-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  dependencies:
+    name: Dependency and license audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install locked dependencies
+        run: uv sync --locked --all-extras --all-groups
+
+      - name: Audit locked dependencies
+        run: uv run --locked pip-audit --skip-editable --progress-spinner off
+
+      - name: Generate license manifest
+        run: >-
+          uv run --locked pip-licenses
+          --format=json
+          --with-urls
+          --with-license-file
+          > license-report.json
+
+      - name: Upload license manifest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: licenses-${{ github.run_id }}-${{ github.run_attempt }}
+          path: license-report.json
+          if-no-files-found: error
+          retention-days: 30

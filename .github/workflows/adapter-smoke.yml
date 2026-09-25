@@ -1,0 +1,106 @@
+name: Adapter smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "31 5 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: adapter-smoke-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  UV_NO_PROGRESS: "1"
+  UV_LINK_MODE: copy
+
+jobs:
+  smoke:
+    name: Account-free end-to-end execution
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install locked dependencies
+        run: uv sync --locked --all-extras --all-groups
+
+      - name: Plan account-free smoke run
+        run: >-
+          uv run --locked pt-bench plan
+          --suite suites/smoke/1.0.0/suite.toml
+          --output build/smoke-plan.json
+
+      - name: Execute fake adapter
+        run: >-
+          uv run --locked pt-bench execute
+          --plan build/smoke-plan.json
+          --subject fake-client
+          --adapter fake
+          --output-dir build/executions
+
+      - name: Finalize execution
+        run: >-
+          uv run --locked pt-bench finalize
+          --plan build/smoke-plan.json
+          --execution-dir build/executions/fake-client/0001
+
+      - name: Aggregate run bundle
+        run: >-
+          uv run --locked pt-bench aggregate
+          --plan build/smoke-plan.json
+          --executions build/executions
+          --output build/run-bundle
+
+      - name: Validate public run-bundle contract
+        run: >-
+          uv run --locked pt-bench schemas validate
+          --kind run-bundle
+          build/run-bundle/manifest.json
+
+      - name: Write job summary
+        if: always()
+        run: |
+          echo "## Adapter smoke" >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          if [ -f build/run-bundle/manifest.json ]; then
+            jq -r '
+              "- Bundle: `\(.bundle_id)`",
+              "- Mode: `\(.plan.execution_mode)`",
+              "- Completion: `\(.completion)`",
+              "- Results: \(.result_count)",
+              "- Evidence: \(.evidence_count)"
+            ' build/run-bundle/manifest.json >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No run bundle was produced." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload smoke bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: adapter-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            build/smoke-plan.json
+            build/run-bundle/
+          if-no-files-found: warn
+          retention-days: 14

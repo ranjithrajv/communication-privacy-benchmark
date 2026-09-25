@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build attested release assets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
+      - name: Install locked build dependencies
+        run: uv sync --locked --all-extras --all-groups
+
+      - name: Run quality gate
+        run: |
+          uv run --locked ruff format --check .
+          uv run --locked ruff check .
+          uv run --locked mypy src tests
+          uv run --locked pytest
+          uv run --locked pt-bench registry validate
+          uv run --locked pt-bench schemas export --output-dir schemas/v1alpha1 --check
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Generate software bill of materials
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: dist/sbom.cdx.json
+
+      - name: Attest wheel
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698ae569d6 # v4.2.2
+        with:
+          subject-path: "dist/*.whl"
+
+      - name: Attest source distribution
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698ae569d6 # v4.2.2
+        with:
+          subject-path: "dist/*.tar.gz"
+
+      - name: Publish GitHub release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" dist/* --verify-tag --generate-notes
+
+      - name: Upload release assets as workflow artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ github.ref_name }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30

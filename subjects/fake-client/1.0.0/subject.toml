@@ -1,0 +1,30 @@
+schema_version = "1alpha1"
+subject_id = "fake-client"
+subject_version = "1.0.0"
+
+[client]
+name = "Fake Client"
+version = "1.0.0"
+build = "synthetic"
+distribution_channel = "test-fixture"
+
+[platform]
+os = "Linux"
+architecture = "x86_64"
+is_emulator = false
+
+[account]
+account_type = "synthetic"
+slot_id = "slot-0001"
+synthetic = true
+authentication_method = "none"
+
+[configuration]
+profile = "default"
+settings = []
+
+[network_vantage]
+vantage_id = "local-ci"
+country_code = "ZZ"
+network_type = "loopback"
+notes = "Synthetic CI fixture. Not a measurement vantage."

@@ -1,0 +1,205 @@
+{
+  "$defs": {
+    "CheckRef": {
+      "additionalProperties": false,
+      "properties": {
+        "check_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$",
+          "title": "Check Id",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "check_id",
+        "version"
+      ],
+      "title": "CheckRef",
+      "type": "object"
+    },
+    "ExecutionMode": {
+      "enum": [
+        "github_actions",
+        "local"
+      ],
+      "title": "ExecutionMode",
+      "type": "string"
+    },
+    "GitHubProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "commit_sha": {
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+          "title": "Commit Sha",
+          "type": "string"
+        },
+        "job": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Job",
+          "type": "string"
+        },
+        "repository": {
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+          "title": "Repository",
+          "type": "string"
+        },
+        "run_attempt": {
+          "exclusiveMinimum": 0,
+          "title": "Run Attempt",
+          "type": "integer"
+        },
+        "run_id": {
+          "exclusiveMinimum": 0,
+          "title": "Run Id",
+          "type": "integer"
+        },
+        "workflow": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Workflow",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repository",
+        "workflow",
+        "job",
+        "run_id",
+        "run_attempt",
+        "commit_sha"
+      ],
+      "title": "GitHubProvenance",
+      "type": "object"
+    },
+    "SubjectRef": {
+      "additionalProperties": false,
+      "properties": {
+        "subject_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$",
+          "title": "Subject Id",
+          "type": "string"
+        },
+        "subject_version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+          "title": "Subject Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "subject_id",
+        "subject_version"
+      ],
+      "title": "SubjectRef",
+      "type": "object"
+    }
+  },
+  "$id": "urn:communication-privacy-benchmark:schema:run-plan:1alpha1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "checks": {
+      "items": {
+        "$ref": "#/$defs/CheckRef"
+      },
+      "minItems": 1,
+      "title": "Checks",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "execution_mode": {
+      "$ref": "#/$defs/ExecutionMode"
+    },
+    "expected_execution_count": {
+      "exclusiveMinimum": 0,
+      "title": "Expected Execution Count",
+      "type": "integer"
+    },
+    "github": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GitHubProvenance"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "name": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "plan_id": {
+      "format": "uuid",
+      "title": "Plan Id",
+      "type": "string"
+    },
+    "repetitions": {
+      "default": 1,
+      "maximum": 20,
+      "minimum": 1,
+      "title": "Repetitions",
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": "1alpha1",
+      "default": "1alpha1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "subjects": {
+      "items": {
+        "$ref": "#/$defs/SubjectRef"
+      },
+      "minItems": 1,
+      "title": "Subjects",
+      "type": "array"
+    },
+    "suite_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$",
+      "title": "Suite Id",
+      "type": "string"
+    },
+    "suite_version": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+      "title": "Suite Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "plan_id",
+    "name",
+    "suite_id",
+    "suite_version",
+    "created_at",
+    "execution_mode",
+    "checks",
+    "subjects",
+    "expected_execution_count"
+  ],
+  "title": "RunPlan",
+  "type": "object"
+}

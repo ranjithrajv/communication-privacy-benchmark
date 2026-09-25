@@ -1,0 +1,9 @@
+schema_version = "1alpha1"
+suite_id = "smoke"
+version = "1.0.0"
+status = "active"
+title = "Harness smoke suite"
+description = "Deterministic, account-free execution of the full plan, adapter, result, evidence, finalization, and aggregation path."
+checks = ["harness.smoke@1.0.0"]
+subjects = ["fake-client@1.0.0"]
+repetitions = 1
