@@ -371,9 +371,28 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
 
+  transport:
+    name: Publish the bundle
+    needs: [plan, aggregate, publish]
+    # Reached only when the harness actually produced a publication receipt, which it
+    # does only for a bundle that cleared every operational requirement. The reusable
+    # transport re-checks the receipt before moving any bytes, so a missing receipt is a
+    # hard stop rather than an upload of unvetted data.
+    if: needs.publish.result == 'success'
+    uses: ./.github/workflows/_publish-benchmark.yml
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    with:
+      lane: email
+      bundle-artifact: email-benchmark-bundle
+      receipt-artifact: email-benchmark-receipt
+      release-tag: benchmark-data
+
   final-health-check:
     name: Final health check
-    needs: [plan, subject, aggregate, publish]
+    needs: [plan, subject, aggregate, publish, transport]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -385,6 +404,7 @@ jobs:
           PLAN: ${{ needs.plan.result }}
           AGGREGATE: ${{ needs.aggregate.result }}
           PUBLISH: ${{ needs.publish.result }}
+          TRANSPORT: ${{ needs.transport.result }}
         run: |
           {
             echo "## Final health check"
@@ -392,6 +412,7 @@ jobs:
             echo "- plan: \`$PLAN\`"
             echo "- aggregate: \`$AGGREGATE\`"
             echo "- publish: \`$PUBLISH\`"
+            echo "- transport: \`$TRANSPORT\`"
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$PLAN" != "success" ]; then
             echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -403,5 +424,11 @@ jobs:
           if [ "$AGGREGATE" != "success" ] || [ "$PUBLISH" != "success" ]; then
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "The run did not aggregate and publish cleanly." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          if [ "$TRANSPORT" != "success" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "The bundle cleared the gate but was not transported to the release." \
+              >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi

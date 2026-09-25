@@ -1,0 +1,152 @@
+name: Publish benchmark data
+
+# Reusable transport for a canonical run bundle. The leading underscore marks this as
+# implementation, not an entry point: the visible entry points are the measurement
+# lanes, which call this workflow.
+#
+# The harness decides and records; this workflow moves the bytes. `pt-bench publish`
+# writes a receipt only after re-deriving every publication requirement from the bundle
+# and the checked-in operational policy, and this workflow refuses to transport
+# anything that does not carry one. That split keeps the irreversible, credentialed
+# step in Actions where it is reviewable, and keeps the decision itself a pure function
+# of checked-in policy plus a verified bundle.
+#
+# This workflow holds write permissions. It is therefore never triggered directly and
+# never runs on pull-request code; the only caller is a protected measurement lane.
+
+on:
+  workflow_call:
+    inputs:
+      lane:
+        description: Measurement lane name recorded in the release asset name
+        required: true
+        type: string
+      bundle-artifact:
+        description: Artifact name holding the aggregated run bundle
+        required: true
+        type: string
+      receipt-artifact:
+        description: Artifact name holding the publication receipt
+        required: true
+        type: string
+      release-tag:
+        description: Rolling release tag that accumulates published bundles
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  transport:
+    name: Upload and attest the bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      # `contents: write` uploads the bundle assets to the rolling release. `id-token`
+      # and `attestations` mint the build-provenance attestation binding each asset to
+      # this workflow run. This job is reachable only from a protected measurement lane
+      # that already holds a publication receipt, so these grants are never exercised by
+      # pull-request code.
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download the publication receipt
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        id: receipt
+        with:
+          name: ${{ inputs.receipt-artifact }}
+          path: receipt
+
+      - name: Verify the receipt before transporting anything
+        # A receipt is the harness's own statement that the bundle cleared the gate.
+        # Uploading without one would defeat the publication gate, so its absence is a
+        # hard stop rather than a warning.
+        id: verify
+        run: |
+          receipt=$(find receipt -name '*.receipt.json' -type f | head -n 1)
+          if [ -z "$receipt" ]; then
+            echo "no publication receipt was produced; refusing to transport" >&2
+            exit 1
+          fi
+          echo "receipt=$receipt" >> "$GITHUB_OUTPUT"
+          echo "Publishing $(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(d["bundle_id"],"target="+d["target"],"attested="+str(d["attested"]))' "$receipt")"
+
+      - name: Download the run bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.bundle-artifact }}
+          path: bundle
+
+      - name: Archive the bundle
+        # The bundle is a directory tree, so it is checksummed and compressed into a
+        # single asset. `bundle/checksums.sha256` travels inside the archive, which is
+        # what lets a reader re-verify every published document independently.
+        id: archive
+        env:
+          LANE: ${{ inputs.lane }}
+        run: |
+          mkdir -p dist
+          ( cd bundle && find . -type f -print0 | sort -z \
+            | xargs -0 sha256sum > ../dist/bundle-checksums.sha256 )
+          archive="dist/${LANE}-$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["bundle_id"])' "${{ steps.verify.outputs.receipt }}").tar.gz"
+          tar --sort=name --owner=0 --group=0 --numeric-owner \
+            --mtime='UTC 1970-01-01' \
+            -czf "$archive" -C bundle .
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          ls -lh "$archive"
+
+      - name: Attest the bundle archive
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ steps.archive.outputs.archive }}
+
+      - name: Attest the publication receipt
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ steps.verify.outputs.receipt }}
+
+      - name: Upload to the rolling release
+        # Append-only: assets are added to a rolling tag and never replaced. A second
+        # attempt to publish the same bundle therefore fails rather than overwriting the
+        # bytes a reader may already have verified against an attestation.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" \
+              "${{ steps.archive.outputs.archive }}" \
+              "dist/bundle-checksums.sha256" \
+              "${{ steps.verify.outputs.receipt }}" \
+              --clobber=false
+          else
+            gh release create "$RELEASE_TAG" \
+              "${{ steps.archive.outputs.archive }}" \
+              "dist/bundle-checksums.sha256" \
+              "${{ steps.verify.outputs.receipt }}" \
+              --title "Published benchmark data" \
+              --notes "Rolling release accumulating canonical run bundles. Each asset is attested; see the publication receipt for the bundle id, policy revision, and originating Actions run." \
+              --verify-tag=false
+          fi
+
+      - name: Record the transport
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
+        run: |
+          {
+            echo "## Published"
+            echo
+            echo "- Release: \`$RELEASE_TAG\`"
+            echo "- Archive: \`${{ steps.archive.outputs.archive }}\`"
+            echo "- Receipt: \`${{ steps.verify.outputs.receipt }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          gh release view "$RELEASE_TAG" --json url --jq .url >> "$GITHUB_STEP_SUMMARY"
