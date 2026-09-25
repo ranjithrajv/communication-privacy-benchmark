@@ -85,7 +85,9 @@ def _client(observations: list[dict[str, Any]] | None = None, **kwargs: Any) -> 
     )
 
 
-def _http_observation(origin: str = "client") -> dict[str, Any]:
+def _http_observation(
+    origin: str = "client", detail: dict[str, Any] | None = None
+) -> dict[str, Any]:
     return {
         "channel": "http",
         "probe_id": "probe.one",
@@ -93,6 +95,7 @@ def _http_observation(origin: str = "client") -> dict[str, Any]:
         "remote_host": CANARY_HOST,
         "observed_at": OBSERVED,
         "resource": "/pixel.gif",
+        "detail": detail or {},
     }
 
 
@@ -340,9 +343,57 @@ def test_numbers_variable_is_the_documented_one() -> None:
     assert NUMBERS_VARIABLE == "PT_BENCH_CHAT_NUMBERS"
 
 
+def test_reader_identification_routes_to_its_own_adjudication(
+    registry: Registry, repository_root: Path, execution_dir: Path
+) -> None:
+    """The two checks must not share a verdict by accident.
+
+    Both read the same observation set, so a dispatch bug would show up as one check
+    reporting the other's reason code. A contact that discloses a source address is a
+    ``fail`` for identification and only a ``partial`` for the preview check, which is
+    precisely the distinction the split exists to preserve.
+    """
+    adapter = _adapter(
+        FakeSession(),
+        observations=[_http_observation(detail={"source_address": "203.0.113.9"})],
+    )
+    outcome = asyncio.run(
+        adapter.execute_check(
+            registry.resolve_check("chat.reader-identification@1.0.0"),
+            _context(registry, repository_root, execution_dir),
+        )
+    )
+
+    assert outcome.status.value == "fail"
+    assert outcome.reason_code == "chat.reader-identified"
+    assert outcome.details["disclosed_fields"] == ["source_address"]
+
+
+def test_the_preview_check_still_reports_a_partial_for_the_same_contact(
+    registry: Registry, repository_root: Path, execution_dir: Path
+) -> None:
+    """The same observations, a different question, a different verdict."""
+    adapter = _adapter(
+        FakeSession(),
+        observations=[_http_observation(detail={"source_address": "203.0.113.9"})],
+    )
+    outcome = asyncio.run(
+        adapter.execute_check(
+            registry.resolve_check("chat.link-preview-fetch@1.0.0"),
+            _context(registry, repository_root, execution_dir),
+        )
+    )
+
+    assert outcome.status.value == "fail"
+    assert outcome.reason_code == "chat.link-preview-fetched"
+    assert "disclosed_fields" not in outcome.details
+
+
 def test_the_adapter_only_claims_the_checks_it_can_answer() -> None:
     adapter = _adapter(FakeSession())
-    assert adapter.supported_checks == frozenset({"chat.link-preview-fetch"})
+    assert adapter.supported_checks == frozenset(
+        {"chat.link-preview-fetch", "chat.reader-identification"}
+    )
     assert adapter.adapter_id == "chat-appium"
 
 

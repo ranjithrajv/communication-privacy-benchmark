@@ -170,6 +170,8 @@ class Adjudication(StrEnum):
     LINK_PREVIEW_FETCHED = "chat.link-preview-fetched"
     NO_PREVIEW_FETCH_OBSERVED = "chat.no-preview-fetch-observed"
     PARTIAL_CONTACT_ONLY = "chat.partial-contact-only"
+    READER_IDENTIFIED = "chat.reader-identified"
+    NO_READER_DISCLOSURE_OBSERVED = "chat.no-reader-disclosure-observed"
     MESSAGE_NOT_DELIVERED = "chat.message-not-delivered"
     DISPLAY_NOT_ASSERTED = "chat.display-not-asserted"
     WATCHERS_UNHEALTHY = "chat.watchers-unhealthy"
@@ -489,6 +491,131 @@ def adjudicate(
     )
 
 
+#: The fields a canary contact must carry before it can single out a reader. A mobile
+#: client behind carrier NAT shares an address with many other subscribers, so the source
+#: address is only half the disclosure; the user agent is what separates one handset from
+#: another on a shared egress. A contact carrying neither reveals that a conversation was
+#: opened but not by whom, which is a different and weaker claim than identification.
+READER_FIELDS = ("source_address", "user_agent")
+
+
+def adjudicate_reader_identification(
+    *,
+    state: GatewayMessageState,
+    observations: tuple[GatewayObservation, ...],
+    display_asserted: bool,
+) -> tuple[ResultStatus, Adjudication, str, dict[str, JsonValue]]:
+    """Decide ``chat.reader-identification``.
+
+    This asks what one contact *reveals*, not whether a contact happened, so it is
+    deliberately separate from :func:`adjudicate`. A client can suppress every link preview
+    and still hand the canary a source address and a user agent through anything that
+    fetches on the user's behalf, and conversely a client that fetches on a coarse shared
+    address may disclose less than one that resolves a per-account CDN edge. Folding either
+    case into the other check would report a fetch as if it were an identification.
+
+    Validity and attribution are settled the same way as for the preview check, and for the
+    same reason: a contact that cannot be attributed to the client describes the relay or
+    the provider, and reporting it as a reader disclosure would be a false finding about
+    the product.
+    """
+
+    details: dict[str, JsonValue] = {
+        "delivered": state.delivered_at is not None,
+        "display_asserted": display_asserted,
+        "watchers_healthy": state.watchers_healthy,
+        "observation_count": len(observations),
+    }
+
+    if state.delivered_at is None:
+        return (
+            ResultStatus.INCONCLUSIVE,
+            Adjudication.MESSAGE_NOT_DELIVERED,
+            "The gateway never confirmed delivery, so nothing can be attributed to the client.",
+            details,
+        )
+    if not state.watchers_healthy:
+        return (
+            ResultStatus.INCONCLUSIVE,
+            Adjudication.WATCHERS_UNHEALTHY,
+            "The canary watchers were not healthy, so an absence of traffic proves nothing.",
+            details,
+        )
+    if not display_asserted:
+        return (
+            ResultStatus.INCONCLUSIVE,
+            Adjudication.DISPLAY_NOT_ASSERTED,
+            "The message was delivered but the client never reported rendering it, so no "
+            "contact could have been caused by the reader reading it.",
+            details,
+        )
+
+    foreign = [item for item in observations if item.probe_id != state.probe_id]
+    if foreign:
+        raise AdapterError(f"gateway returned {len(foreign)} observations for another probe id")
+
+    pre_delivery = tuple(item for item in observations if item.observed_at < state.delivered_at)
+    details["pre_delivery_observation_count"] = len(pre_delivery)
+    scorable = tuple(item for item in observations if item.observed_at >= state.delivered_at)
+    details["scorable_observation_count"] = len(scorable)
+
+    client = [item for item in scorable if item.origin in CLIENT_ATTRIBUTABLE_ORIGINS]
+    if not client:
+        provider = [item for item in scorable if item.origin is ObservationOrigin.PROVIDER]
+        if provider and len(provider) == len(scorable):
+            return (
+                ResultStatus.INCONCLUSIVE,
+                Adjudication.PROVIDER_ACTIVITY_ONLY,
+                "Only provider or relay infrastructure contacted the canary, which "
+                "discloses that infrastructure and not the reader, so no client result "
+                "is claimed.",
+                details,
+            )
+        if scorable:
+            return (
+                ResultStatus.INCONCLUSIVE,
+                Adjudication.UNATTRIBUTED_ACTIVITY,
+                "Canary contacts were observed but none could be attributed to the client, "
+                "so nothing is known about what the reader disclosed.",
+                details,
+            )
+        return (
+            ResultStatus.PASS,
+            Adjudication.NO_READER_DISCLOSURE_OBSERVED,
+            "The message was rendered with every watcher healthy, and the client made no "
+            "canary contact, so the canary learned nothing about the reader.",
+            details,
+        )
+
+    disclosed = sorted(
+        {
+            field
+            for item in client
+            for field in READER_FIELDS
+            if item.detail.get(field) not in (None, "")
+        }
+    )
+    details["disclosed_fields"] = list(disclosed)
+    if disclosed:
+        return (
+            ResultStatus.FAIL,
+            Adjudication.READER_IDENTIFIED,
+            f"A client-attributed canary contact carried {', '.join(disclosed)}, so the "
+            f"canary can single out this reader among other addresses sharing the same "
+            f"egress.",
+            details,
+        )
+    # A contact with no identifying field is not a pass. Something was contacted, and the
+    # gateway simply did not say what it learned, so the disclosure cannot be stated.
+    return (
+        ResultStatus.PARTIAL,
+        Adjudication.UNATTRIBUTED_ACTIVITY,
+        "The client contacted the canary but the gateway reported no reader-identifying "
+        "field, so what the canary learned cannot be stated. That is not a clean result.",
+        details,
+    )
+
+
 @dataclass(slots=True)
 class ChatAppiumAdapter:
     """Runs the chat checks a pinned canary gateway and an Android lane can answer.
@@ -510,7 +637,7 @@ class ChatAppiumAdapter:
     #: the whole observation window before reporting ``inconclusive``.
     display_timeout_seconds: int = 120
     supported_checks: frozenset[str] = field(
-        default_factory=lambda: frozenset({"chat.link-preview-fetch"})
+        default_factory=lambda: frozenset({"chat.link-preview-fetch", "chat.reader-identification"})
     )
     redaction_policy_id: str = "evidence-retention-v1"
     raw_retention: str = "30-days-then-delete"
@@ -559,7 +686,15 @@ class ChatAppiumAdapter:
         if created is None:  # pragma: no cover - defensive; deliver() raises first
             raise AdapterError("honey-message was never created")
 
-        status, reason_code, summary, details = adjudicate(
+        # The two checks share every precondition and differ only in what they ask of the
+        # observation set, so the dispatch is on the check the caller named rather than on
+        # a second code path that could drift from the first.
+        adjudicate_for = (
+            adjudicate_reader_identification
+            if check.check_id == "chat.reader-identification"
+            else adjudicate
+        )
+        status, reason_code, summary, details = adjudicate_for(
             state=state, observations=observations, display_asserted=display_asserted
         )
         details.update(

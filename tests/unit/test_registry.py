@@ -286,6 +286,7 @@ def test_chat_suite_is_draft_until_the_device_lane_exists(registry: Registry) ->
     assert suite.checks == (
         "chat.link-preview-fetch@1.0.0",
         "chat.notification-preview@1.0.0",
+        "chat.reader-identification@1.0.0",
     )
     assert {parse_reference(ref)[0] for ref in suite.subjects} == CHAT_SUBJECTS
 
