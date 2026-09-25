@@ -260,11 +260,24 @@ jobs:
 
       - name: Download the run plan
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
         with:
           name: email-benchmark-plan
           path: build
 
+      - name: Stop when the plan gate refused
+        # When the plan gate refuses there is no plan and nothing to aggregate. This job
+        # still runs, per the architecture, so an incomplete run is visible rather than
+        # silently absent, but it must not report a misleading missing-artifact failure.
+        # `final-health-check` is the single authoritative verdict.
+        if: hashFiles('build/plan.json') == ''
+        run: |
+          echo "The plan gate refused this run, so there is nothing to aggregate." \
+            >> "$GITHUB_STEP_SUMMARY"
+          echo "skipped_aggregate=true" >> "$GITHUB_ENV"
+
       - name: Download every available execution
+        if: hashFiles('build/plan.json') != ''
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
@@ -275,6 +288,7 @@ jobs:
       - name: Aggregate
         # Exit 2 means the bundle is valid but incomplete, which is reported rather
         # than hidden. Only a genuine aggregation failure is fatal here.
+        if: hashFiles('build/plan.json') != ''
         run: |
           status=0
           uv run --locked pt-bench aggregate \
