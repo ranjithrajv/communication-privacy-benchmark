@@ -118,6 +118,28 @@ recovery_tested = false
 notes = "One account is shared by the Apple Mail, Thunderbird, and FairEmail subjects so the client is the only variable. Sharing is deliberate and must be stated in any published row."
 
 [[terms_reviews]]
+subject_id = "apple-mail-gmail-consumer"
+subject_version = "1.0.0"
+decision = "pending"
+provider = "Google"
+terms_uri = "https://policies.google.com/terms"
+reviewed_on = 2026-09-25
+reviewed_by = "unassigned"
+conditions = []
+notes = "UNREVIEWED. The measurement drives a synthetic consumer Gmail account through a native client using an app password. Establish whether automated scripted interaction with a consumer account is permitted at all, whether recurring scheduled runs are allowed, and what request rate is acceptable. Also record the position on using an app password rather than the OAuth consent flow, since the two produce different account configuration under test."
+
+[[terms_reviews]]
+subject_id = "thunderbird-gmail-consumer"
+subject_version = "1.0.0"
+decision = "pending"
+provider = "Google"
+terms_uri = "https://policies.google.com/terms"
+reviewed_on = 2026-09-25
+reviewed_by = "unassigned"
+conditions = []
+notes = "UNREVIEWED AND DELIBERATELY SHARED with the Apple Mail review: both subjects read the same synthetic account from the same vantage so the client is the only variable. Approving one without the other would break that comparison, so the two decisions must be recorded together and state the same permitted actions."
+
+[[terms_reviews]]
 subject_id = "signal-android-default"
 subject_version = "1.0.0"
 decision = "pending"

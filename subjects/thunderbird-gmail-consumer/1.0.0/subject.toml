@@ -1,0 +1,43 @@
+schema_version = "1alpha1"
+subject_id = "thunderbird-gmail-consumer"
+subject_version = "1.0.0"
+notes = "Unprovisioned lane declaration. \"default\" means the vendor-shipped Thunderbird settings asserted below, not an observed state. The installed Thunderbird build, macOS build, and hardware model are intentionally unset: device-preflight captures them at measurement time. Shares the synthetic Gmail slot with the Apple Mail subject so the mail client is the only variable in a comparison row; a difference between the two rows is attributable to the client rather than to a different account or network. This subject cannot produce a canonical result until the EPT gateway is pinned, the synthetic mailbox is provisioned, the physical Mac lane exists, and the Google provider-terms review is approved."
+
+[client]
+name = "Mozilla Thunderbird"
+distribution_channel = "vendor-download"
+
+[service]
+name = "Gmail"
+
+[platform]
+os = "macOS"
+architecture = "x86_64"
+is_emulator = false
+
+[account]
+account_type = "consumer-gmail"
+slot_id = "slot-gmail-0001"
+synthetic = true
+authentication_method = "oauth2_with_app_password"
+
+[configuration]
+profile = "default"
+
+[[configuration.settings]]
+name = "load_remote_content"
+value = "never"
+
+[[configuration.settings]]
+name = "check_for_new_mail"
+value = "every_10_minutes"
+
+[[configuration.settings]]
+name = "fetch_attachments"
+value = "manual"
+
+[network_vantage]
+vantage_id = "email-lane-unselected"
+country_code = "DE"
+network_type = "residential-unselected"
+notes = "Measurement region is not selected yet. The architecture differs from the Apple Mail subject on purpose so a result is not implicitly tied to one CPU architecture, and the vantage must be identical across both rows to keep the client the only variable."

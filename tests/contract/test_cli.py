@@ -47,10 +47,14 @@ def test_operations_validate_reports_blocked_subjects(repository_root: Path) -> 
     assert payload["publication_target"] == "none"
     blocked = {item["subject"] for item in payload["canonical_blocked_subjects"]}
     assert blocked == {
+        "apple-mail-gmail-consumer@1.0.0",
+        "thunderbird-gmail-consumer@1.0.0",
         "signal-android-default@1.0.0",
         "whatsapp-android-default@1.0.0",
         "telegram-android-default@1.0.0",
     }
+    # Every real subject is blocked; only the account-free fixture is approved.
+    assert payload["review_decisions"] == {"approved": 1, "pending": 5}
     assert payload["unprovisioned_infrastructure"]
 
 

@@ -14,6 +14,22 @@ All notable changes to this project are documented in this file. The format foll
 
 ### Added
 
+- EPT gateway adapter behind `pt-bench execute --adapter ept`, implementing
+  `email.remote-content` against a versioned private-gateway contract. Gateway
+  configuration and the slot-to-mailbox mapping are read from the environment, never
+  from a checked-in definition, and the adapter is only registered when a gateway is
+  configured.
+- A typed gateway observation contract covering HTTP, DNS, TLS SNI, TCP, and MIME
+  watchers, with probe correlation: observations carrying a foreign `probe_id` are
+  rejected rather than adjudicated.
+- An adjudication guard against false passes. Delivery, an open signal, and watcher
+  health must all be confirmed before an empty observation set may be reported as
+  `pass`; anything short of that is `inconclusive`. DNS, TLS SNI, and TCP all count as
+  remote fetches, independently of HTTP.
+- Draft email lane declarations for Apple Mail and Thunderbird reading the same
+  synthetic Gmail account from the same vantage, differing only in the setting the
+  check measures, plus a draft `email` suite repeating three times to expose flaky
+  behaviour. Pending provider-terms reviews for both subjects keep the lane blocked.
 - Repetition roll-up: `pt-bench rollup` reduces a run bundle to a per-check stability
   verdict (`pass`, `fail`, `flaky`, `inconclusive`, `not_applicable`, `unsupported`,
   `incomplete`) with a Wilson 95% pass-rate interval. An under-sampled run is reported

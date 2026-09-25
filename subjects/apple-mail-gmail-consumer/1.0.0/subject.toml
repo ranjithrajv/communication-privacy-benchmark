@@ -1,0 +1,43 @@
+schema_version = "1alpha1"
+subject_id = "apple-mail-gmail-consumer"
+subject_version = "1.0.0"
+notes = "Unprovisioned lane declaration. \"default\" means the vendor-shipped Apple Mail settings asserted below, not an observed state. The installed Mail build, macOS build, and hardware model are intentionally unset: device-preflight captures them at measurement time, so a subject never asserts a version that was not observed. Shares the synthetic Gmail slot with the Thunderbird subject so the mail client is the only variable in a comparison row. This subject cannot produce a canonical result until the EPT gateway is pinned, the synthetic mailbox is provisioned, the physical Mac lane exists, and the Google provider-terms review is approved."
+
+[client]
+name = "Apple Mail"
+distribution_channel = "apple-bundled"
+
+[service]
+name = "Gmail"
+
+[platform]
+os = "macOS"
+architecture = "arm64"
+is_emulator = false
+
+[account]
+account_type = "consumer-gmail"
+slot_id = "slot-gmail-0001"
+synthetic = true
+authentication_method = "oauth2_with_app_password"
+
+[configuration]
+profile = "default"
+
+[[configuration.settings]]
+name = "load_remote_content"
+value = "ask_per_message"
+
+[[configuration.settings]]
+name = "check_for_new_mail"
+value = "every_5_minutes"
+
+[[configuration.settings]]
+name = "fetch_attachments"
+value = "manual"
+
+[network_vantage]
+vantage_id = "email-lane-unselected"
+country_code = "DE"
+network_type = "residential-unselected"
+notes = "Measurement region is not selected yet. Apple Mail delegates most retrieval to the Gmail service, so the vantage determines the data path that is actually measured. The country code mirrors the reference vantage in operations/1.0.0/operations.toml and must be pinned to a real provider before a canonical run."

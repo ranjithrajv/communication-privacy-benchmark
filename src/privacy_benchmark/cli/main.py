@@ -12,6 +12,12 @@ from typing import Any
 import click
 
 from privacy_benchmark.adapters.base import AdapterRegistry
+from privacy_benchmark.adapters.ept import (
+    EptGatewayAdapter,
+    EptGatewayClient,
+    gateway_config_from_environment,
+    mailbox_config_from_environment,
+)
 from privacy_benchmark.adapters.fake import FakeAdapter
 from privacy_benchmark.harness.aggregation import aggregate_run
 from privacy_benchmark.harness.analysis import (
@@ -47,8 +53,23 @@ def _emit_json(value: object) -> None:
 
 
 def _adapter_registry() -> AdapterRegistry:
+    """Build the adapter registry.
+
+    The EPT adapter is registered only when a private gateway is configured, so a
+    checkout with no gateway credentials cannot accidentally address a real deployment.
+    """
+
     registry = AdapterRegistry()
     registry.register(FakeAdapter())
+    gateway = gateway_config_from_environment()
+    if gateway is not None:
+        base_url, token = gateway
+        registry.register(
+            EptGatewayAdapter(
+                client=EptGatewayClient(base_url=base_url, token=token),
+                mailboxes=mailbox_config_from_environment(),
+            )
+        )
     return registry
 
 

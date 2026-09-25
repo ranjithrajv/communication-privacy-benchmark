@@ -17,10 +17,83 @@ def test_checked_in_registry_is_valid(registry: Registry) -> None:
     assert ("smoke", "1.0.0") in registry.suites
 
 
-def test_draft_product_check_is_not_canonical_yet(registry: Registry) -> None:
+EMAIL_SUBJECTS = {
+    "apple-mail-gmail-consumer",
+    "thunderbird-gmail-consumer",
+}
+
+
+def test_the_email_check_has_an_adapter_but_stays_draft(registry: Registry) -> None:
+    """The adapter exists; the lane does not, so the check is still not runnable."""
+
     check = registry.resolve_check("email.remote-content@1.0.0")
     assert check.status.value == "draft"
-    assert check.adapter_id == "unimplemented"
+    assert check.adapter_id == "ept"
+    assert check.canonical is True
+    assert [runner.value for runner in check.runner_classes] == [
+        "self_hosted_macos",
+        "self_hosted_android",
+    ]
+
+
+def test_the_email_suite_is_draft_until_the_gateway_is_pinned(registry: Registry) -> None:
+    suite = registry.resolve_suite("email@1.0.0")
+    assert suite.status.value == "draft"
+    assert suite.checks == ("email.remote-content@1.0.0",)
+    assert {parse_reference(ref)[0] for ref in suite.subjects} == EMAIL_SUBJECTS
+
+
+def test_the_email_suite_repeats_enough_to_detect_flakiness(registry: Registry) -> None:
+    assert registry.resolve_suite("email@1.0.0").repetitions >= 3
+
+
+def test_email_subjects_share_one_account_so_the_client_is_the_variable(
+    registry: Registry,
+) -> None:
+    slots = {
+        subject_id: registry.resolve_subject(f"{subject_id}@1.0.0").account.slot_id
+        for subject_id in EMAIL_SUBJECTS
+    }
+    assert len(set(slots.values())) == 1, "a shared slot is what makes the rows comparable"
+
+    vantages = {
+        registry.resolve_subject(f"{subject_id}@1.0.0").network_vantage.vantage_id
+        for subject_id in EMAIL_SUBJECTS
+    }
+    assert len(vantages) == 1, "a differing vantage would confound the client comparison"
+
+
+def test_email_subjects_declare_the_remote_content_setting_under_test(
+    registry: Registry,
+) -> None:
+    settings = {
+        subject_id: {
+            setting.name: setting.value
+            for setting in registry.resolve_subject(f"{subject_id}@1.0.0").configuration.settings
+        }
+        for subject_id in EMAIL_SUBJECTS
+    }
+    # The two clients must differ in the setting the check actually measures,
+    # otherwise the comparison says nothing.
+    assert settings["apple-mail-gmail-consumer"]["load_remote_content"] == "ask_per_message"
+    assert settings["thunderbird-gmail-consumer"]["load_remote_content"] == "never"
+
+
+def test_email_subjects_use_only_synthetic_accounts(registry: Registry) -> None:
+    for subject_id in EMAIL_SUBJECTS:
+        account = registry.resolve_subject(f"{subject_id}@1.0.0").account
+        assert account.synthetic is True
+        assert account.authentication_method == "oauth2_with_app_password"
+
+
+def test_email_subjects_do_not_pin_runtime_derived_identity(registry: Registry) -> None:
+    for subject_id in EMAIL_SUBJECTS:
+        subject = registry.resolve_subject(f"{subject_id}@1.0.0")
+        assert subject.client.version is None
+        assert subject.client.build is None
+        assert subject.client.artifact_sha256 is None
+        assert subject.platform.device_model is None
+        assert subject.platform.version is None
 
 
 CHAT_SUBJECTS = {

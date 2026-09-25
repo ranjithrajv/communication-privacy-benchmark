@@ -154,6 +154,68 @@ the specific actions being authorized — see [CONTRIBUTING.md](CONTRIBUTING.md)
 Only `fake-client` is currently approved, and that approval covers only the account-free
 harness path. It deliberately authorizes no product claim.
 
+## Email pilot lane
+
+Two native mail clients are declared as subjects, with one check and one draft suite:
+
+```text
+subjects/apple-mail-gmail-consumer/1.0.0      Apple Mail  + Gmail consumer
+subjects/thunderbird-gmail-consumer/1.0.0     Thunderbird + the same Gmail account
+checks/email/remote-content/1.0.0              draft
+suites/email/1.0.0                             draft
+```
+
+Both subjects read the **same synthetic account from the same vantage**, and they differ
+in exactly the setting the check measures (`load_remote_content`). A difference between
+the two rows is therefore attributable to the client, which is the whole point of a
+configuration-aware benchmark.
+
+### The EPT adapter
+
+`pt-bench execute --adapter ept` drives a private gateway in front of a pinned upstream
+Email Privacy Tester deployment. The benchmark never calls undocumented EPT routes,
+reads its database, or scrapes its UI.
+
+Configuration comes from the environment, never from a checked-in definition, so a real
+mailbox address cannot reach the repository:
+
+| Variable | Purpose |
+|---|---|
+| `PT_BENCH_EPT_GATEWAY_URL` | Private gateway base URL |
+| `PT_BENCH_EPT_GATEWAY_TOKEN` | Gateway bearer token |
+| `PT_BENCH_EPT_MAILBOXES` | JSON object mapping account slot ids to synthetic addresses |
+
+The adapter is only registered when a gateway is configured, so a checkout without
+credentials cannot accidentally address a real deployment.
+
+### Why an empty observation set is not a pass
+
+An empty observation set is the signature of two very different worlds: a client that
+blocked every remote fetch, and a message that was never delivered or never opened.
+Reporting the first as a `pass` would manufacture a privacy finding out of a broken
+measurement, so the gateway must positively confirm **delivery**, an **open**, and
+**watcher health** before an absence is allowed to mean anything:
+
+| Gateway state | Result |
+|---|---|
+| Never delivered | `inconclusive` |
+| Watchers unhealthy | `inconclusive` |
+| Delivered, never opened | `inconclusive` |
+| Opened, watchers healthy, canary contact observed | `fail` |
+| Opened, watchers healthy, no canary contact | `pass` |
+
+DNS, TLS SNI, and TCP observations all count as remote fetches, independently of HTTP.
+A client can leak the fact that a message was opened through a DNS lookup or a
+preconnect and never complete a request, so judging on HTTP alone would miss it.
+
+Observations carrying a foreign `probe_id` are rejected rather than adjudicated, so a
+gateway mix-up cannot be reported as a product property.
+
+**This lane is unproven against a real deployment.** The adapter is verified end to end
+against a mocked gateway, which exercises the adapter, the execution harness, evidence
+hashing, and result writing, but no real EPT instance or mailbox has yet confirmed the
+observation semantics. The check and suite stay `draft` for that reason.
+
 ## Reading a run
 
 A run bundle holds one raw result per check, per subject, per repetition. Two derived
