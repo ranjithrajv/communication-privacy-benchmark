@@ -64,6 +64,7 @@ from privacy_benchmark.harness.preflight import (
 )
 from privacy_benchmark.harness.publishing import evaluate_publication, stage_publication
 from privacy_benchmark.harness.report import load_report, publishable, write_report
+from privacy_benchmark.harness.site import build_site
 from privacy_benchmark.spec.constants import PACKAGE_VERSION
 from privacy_benchmark.spec.models import (
     CompletionState,
@@ -838,6 +839,50 @@ def report_command(*, bundle: Path, output: Path, to_stdout: bool) -> None:
             }
         )
     if reasons:
+        raise click.exceptions.Exit(2)
+
+
+@main.command("site")
+@click.option(
+    "--bundle",
+    required=True,
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    help="A run bundle produced by 'pt-bench aggregate'.",
+)
+@click.option(
+    "--output-dir",
+    required=True,
+    type=click.Path(file_okay=False, path_type=Path),
+    help="Directory to write the static site into. Created if absent.",
+)
+@click.option("--root", type=click.Path(path_type=Path), default=Path(), show_default=True)
+def site_command(*, bundle: Path, output_dir: Path, root: Path) -> None:
+    """Render a run bundle as a static GitHub Pages site.
+
+    Fails closed on the operations policy: a page is only built when the policy names
+    `github_pages` as its publication target. A run that did not clear the publication gate
+    still renders a page, and that page states the refusal, so the reason is on the public
+    record rather than inferred from a run that is simply missing.
+
+    Exits 2 when the rendered run is not publishable, so a scheduled lane can refuse to
+    deploy it.
+    """
+
+    try:
+        result = build_site(bundle_directory=bundle, output_directory=output_dir, root=root)
+    except Exception as error:
+        raise click.ClickException(str(error)) from error
+
+    _emit_json(
+        {
+            "output": str(result.output_directory),
+            "bundle": result.bundle_id,
+            "pages": [page.path for page in result.pages],
+            "publishable": result.publishable,
+            "not_publishable_because": list(result.not_publishable_because),
+        }
+    )
+    if not result.publishable:
         raise click.exceptions.Exit(2)
 
 

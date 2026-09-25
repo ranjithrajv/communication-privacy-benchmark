@@ -6,6 +6,34 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Added
+
+- `pt-bench site` renders a finalized run bundle as a static GitHub Pages site, and
+  `github_pages` is now a first-class `PublicationTarget`. The page is a view over a bundle
+  that cleared the publication gate, not a second artifact of record: it is regenerated from
+  the bundle on every publish, so it cannot drift from the evidence it describes, and the
+  release asset and its receipt remain what a reader cites. The two are not treated as
+  interchangeable, because a page is indexable, cached indefinitely, and quotable cell by cell
+  without its run provenance, so permitting one is not permitting the other.
+
+  The generator re-derives the publication decision itself rather than trusting a caller or a
+  receipt, because a page is the artifact most likely to be read without the run that produced
+  it. A run that fails the gate still renders a page carrying its refusal — a refused run shown
+  is a record, while a refused run that vanished is indistinguishable from one that never ran —
+  and the command exits `2` so a scheduled lane can refuse to deploy it. HTML is built from the
+  rollup models rather than by converting the markdown report, so no cell is a re-derivation of
+  a string; the markdown ships verbatim beside it as the raw artifact. Since pages are static,
+  the htmx fragments are pre-rendered at build time and the page works with JavaScript disabled;
+  htmx 4 is pinned to an exact version because 4.0 ships under the npm `next` tag while 2.x
+  remains `latest`.
+
+- Tests for the published page at the rendered-HTML boundary, since that is the surface a
+  reader receives: balanced markup, relative links that survive a project subpath, a rate never
+  printed without its interval, the apps-as-columns orientation, and a fragment that is complete
+  rather than a patch. The last of these is a htmx 4 requirement specifically — 4.0 re-fetches
+  on history restore instead of replaying a stored snapshot, so a fragment carrying only a diff
+  would render an empty page on back navigation.
+
 ### Changed
 
 - The preflight observation now reaches the run record. `ExecutionManifest` carries
