@@ -972,6 +972,17 @@
         "account": {
           "$ref": "#/$defs/AccountDefinition"
         },
+        "automation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WebmailAutomation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "client": {
           "$ref": "#/$defs/ComponentRef"
         },
@@ -1197,6 +1208,99 @@
         "source"
       ],
       "title": "VantageObservation",
+      "type": "object"
+    },
+    "WebmailAutomation": {
+      "additionalProperties": false,
+      "description": "How the harness drives a webmail subject's own UI.\n\nThe recipe is data rather than code so that choosing a webmail provider is a change\nto a checked-in subject, not a branch of the adapter. That matters for the benchmark\nin both directions: a new provider must not require re-reading the adapter to know\nwhat it will drive, and a recipe cannot quietly encode a provider's behaviour the way\na hardcoded call site can.\n\nSelectors are Playwright selector strings. They are part of the subject because a\nrecipe that silently stopped matching its product would otherwise turn into a\nreported ``pass``: the run would open nothing, the canary would record nothing, and\nthe absence would be indistinguishable from a client that fetched no remote content.\nThe adapter treats an unresolvable selector as a harness ``error`` for that reason.",
+      "properties": {
+        "entry_url": {
+          "maxLength": 2048,
+          "pattern": "^https://[^\\s/?#]+[^\\s]*$",
+          "title": "Entry Url",
+          "type": "string"
+        },
+        "login_timeout_seconds": {
+          "default": 60,
+          "maximum": 600,
+          "minimum": 5,
+          "title": "Login Timeout Seconds",
+          "type": "integer"
+        },
+        "message_body": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Message Body",
+          "type": "string"
+        },
+        "message_open": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Message Open",
+          "type": "string"
+        },
+        "message_row": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Message Row",
+          "type": "string"
+        },
+        "open_timeout_seconds": {
+          "default": 60,
+          "maximum": 600,
+          "minimum": 5,
+          "title": "Open Timeout Seconds",
+          "type": "integer"
+        },
+        "password_field": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Password Field",
+          "type": "string"
+        },
+        "ready_marker": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Ready Marker",
+          "type": "string"
+        },
+        "sign_out_field": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sign Out Field"
+        },
+        "submit_field": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Submit Field",
+          "type": "string"
+        },
+        "user_field": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "User Field",
+          "type": "string"
+        }
+      },
+      "required": [
+        "entry_url",
+        "user_field",
+        "password_field",
+        "submit_field",
+        "message_row",
+        "message_open",
+        "message_body",
+        "ready_marker"
+      ],
+      "title": "WebmailAutomation",
       "type": "object"
     }
   },

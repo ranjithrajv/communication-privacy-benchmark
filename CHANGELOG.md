@@ -8,6 +8,26 @@ All notable changes to this project are documented in this file. The format foll
 
 ### Added
 
+- The webmail lane: a `WebmailAutomation` recipe on the subject definition, a
+  `webmail-playwright` adapter, and the `webmail.remote-content` check. The provider is
+  carried as **data** — a recipe of selectors on the subject — rather than compiled into
+  the adapter, so choosing a webmail product is a change to a checked-in definition
+  instead of a new branch in code, and one code path cannot quietly stand for two
+  providers.
+
+  The lane observes the same canary through the same gateway as the email clients and
+  reuses that gateway's observation models and `adjudicate` unchanged, because the
+  adversary and the channel are identical; what the adapter adds is the one thing the
+  gateway cannot do for itself, driving the product's UI and reporting whether the
+  message was actually rendered. A webmail row and a desktop row for the same behaviour
+  therefore carry the same `ept.*` reason codes, which is what makes them comparable.
+
+  It is registered and deliberately has no suite and no workflow. A suite must name at
+  least one subject and a subject *is* a product, so naming the provider is still an open
+  decision; a lane that cannot name a subject would queue against a runner that does not
+  exist and fail on every dispatch. `infra/webmail/README.md` records the recipe contract,
+  what the loader enforces versus what it can only state, and the remaining procurement.
+
 - `pt-bench site` renders a finalized run bundle as a static GitHub Pages site, and
   `github_pages` is now a first-class `PublicationTarget`. The page is a view over a bundle
   that cleared the publication gate, not a second artifact of record: it is regenerated from

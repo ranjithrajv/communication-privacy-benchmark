@@ -740,6 +740,38 @@ def _adjudicate_check(
     return adjudicate(state=state, observations=observations, open_asserted=open_asserted)
 
 
+async def await_observations(
+    *,
+    client: EptGatewayClient,
+    test_id: str,
+    state: GatewayTestState,
+    timeout_seconds: int,
+    poll_interval_seconds: float,
+) -> tuple[GatewayObservation, ...]:
+    """Poll the gateway until the window closes, the probe settled, or time runs out.
+
+    Module-level so the webmail adapter drives the same window as the desktop clients
+    rather than keeping a second copy of the polling that decides when a measurement
+    stops. Two copies would eventually disagree about when an empty observation set is
+    the answer, and only one of them would be right.
+    """
+
+    deadline = min(state.window_expires_at, utc_now() + timedelta(seconds=timeout_seconds))
+    while True:
+        payload = client.get_observations(test_id)
+        if payload.observations or (state.delivered_at is not None and state.watchers_healthy):
+            return payload.observations
+        if utc_now() >= deadline:
+            return payload.observations
+        await asyncio.sleep(poll_interval_seconds)
+        refreshed = client.get_state(test_id)
+        if (
+            refreshed.delivered_at != state.delivered_at
+            or refreshed.watchers_healthy != state.watchers_healthy
+        ):
+            state = refreshed
+
+
 @dataclass(slots=True)
 class EptGatewayAdapter:
     """Runs the email checks a pinned EPT deployment can answer.
@@ -878,20 +910,13 @@ class EptGatewayAdapter:
         because past that point an empty set is already the answer.
         """
 
-        deadline = min(state.window_expires_at, utc_now() + timedelta(seconds=timeout_seconds))
-        while True:
-            payload = self.client.get_observations(test_id)
-            if payload.observations or (state.delivered_at is not None and state.watchers_healthy):
-                return payload.observations
-            if utc_now() >= deadline:
-                return payload.observations
-            await asyncio.sleep(self.poll_interval_seconds)
-            refreshed = self.client.get_state(test_id)
-            if (
-                refreshed.delivered_at != state.delivered_at
-                or refreshed.watchers_healthy != state.watchers_healthy
-            ):
-                state = refreshed
+        return await await_observations(
+            client=self.client,
+            test_id=test_id,
+            state=state,
+            timeout_seconds=timeout_seconds,
+            poll_interval_seconds=self.poll_interval_seconds,
+        )
 
     def _evidence(
         self,
