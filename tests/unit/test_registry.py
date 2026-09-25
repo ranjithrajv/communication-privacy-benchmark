@@ -9,6 +9,7 @@ from privacy_benchmark.spec.registry import Registry, RegistryValidationError, p
 
 def test_checked_in_registry_is_valid(registry: Registry) -> None:
     assert set(registry.checks) == {
+        ("chat.link-preview-fetch", "1.0.0"),
         ("email.remote-content", "1.0.0"),
         ("harness.smoke", "1.0.0"),
     }
@@ -20,6 +21,62 @@ def test_draft_product_check_is_not_canonical_yet(registry: Registry) -> None:
     check = registry.resolve_check("email.remote-content@1.0.0")
     assert check.status.value == "draft"
     assert check.adapter_id == "unimplemented"
+
+
+CHAT_SUBJECTS = {
+    "signal-android-default",
+    "whatsapp-android-default",
+    "telegram-android-default",
+}
+
+
+def test_chat_subjects_declare_their_measured_lane(registry: Registry) -> None:
+    for subject_id in CHAT_SUBJECTS:
+        subject = registry.resolve_subject(f"{subject_id}@1.0.0")
+        assert subject.platform.os == "Android"
+        assert subject.platform.is_emulator is False
+        assert subject.account.synthetic is True
+        assert subject.account.authentication_method == "phone_number_sms"
+        assert subject.configuration.profile == "default"
+        assert subject.network_vantage.country_code == "ZZ"
+
+
+def test_chat_subjects_do_not_pin_runtime_derived_identity(registry: Registry) -> None:
+    """App version, build, and artifact hash are captured at measurement time."""
+
+    for subject_id in CHAT_SUBJECTS:
+        subject = registry.resolve_subject(f"{subject_id}@1.0.0")
+        assert subject.client.version is None
+        assert subject.client.build is None
+        assert subject.client.artifact_sha256 is None
+        assert subject.platform.device_model is None
+        assert subject.platform.version is None
+
+
+def test_chat_subjects_declare_the_privacy_relevant_configuration(registry: Registry) -> None:
+    for subject_id in CHAT_SUBJECTS:
+        settings = {
+            setting.name: setting.value
+            for setting in registry.resolve_subject(f"{subject_id}@1.0.0").configuration.settings
+        }
+        assert settings["link_previews"] == "enabled"
+        assert settings["read_receipts"] == "enabled"
+
+
+def test_chat_suite_is_draft_until_the_device_lane_exists(registry: Registry) -> None:
+    suite = registry.resolve_suite("chat@1.0.0")
+    assert suite.status.value == "draft"
+    assert suite.checks == ("chat.link-preview-fetch@1.0.0",)
+    assert {parse_reference(ref)[0] for ref in suite.subjects} == CHAT_SUBJECTS
+
+
+def test_chat_check_targets_the_android_device_lane(registry: Registry) -> None:
+    check = registry.resolve_check("chat.link-preview-fetch@1.0.0")
+    assert check.status.value == "draft"
+    assert check.channel.value == "chat"
+    assert check.evidence_class.value == "measured"
+    assert check.adapter_id == "unimplemented"
+    assert [runner.value for runner in check.runner_classes] == ["self_hosted_android"]
 
 
 @pytest.mark.parametrize("reference", ["missing-version", "too@many@parts", "@1.0.0", "id@"])

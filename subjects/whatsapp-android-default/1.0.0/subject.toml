@@ -1,0 +1,48 @@
+schema_version = "1alpha1"
+subject_id = "whatsapp-android-default"
+subject_version = "1.0.0"
+notes = "Unprovisioned lane declaration. \"default\" means the vendor-shipped settings profile asserted below, not an observed state. The installed app version, build, APK hash, device model, and OS build are intentionally unset: device-preflight captures them at measurement time. This subject cannot produce a canonical result until the synthetic number, the dedicated physical Android device, and the WhatsApp provider-terms review are complete."
+
+[client]
+name = "WhatsApp Messenger"
+package_identifier = "com.whatsapp"
+distribution_channel = "play-store"
+
+[service]
+name = "WhatsApp Service"
+
+[platform]
+os = "Android"
+architecture = "arm64-v8a"
+is_emulator = false
+
+[account]
+account_type = "synthetic-mobile-number"
+slot_id = "slot-whatsapp-0001"
+synthetic = true
+authentication_method = "phone_number_sms"
+
+[configuration]
+profile = "default"
+
+[[configuration.settings]]
+name = "link_previews"
+value = "enabled"
+
+[[configuration.settings]]
+name = "read_receipts"
+value = "enabled"
+
+[[configuration.settings]]
+name = "metadata_sharing"
+value = "enabled"
+
+[[configuration.settings]]
+name = "chat_backup"
+value = "enabled"
+
+[network_vantage]
+vantage_id = "chat-lane-unselected"
+country_code = "ZZ"
+network_type = "unselected"
+notes = "Measurement region is not selected yet. These apps vary by region (relay allocation, CDN edge, and data residency), so country_code is deliberately unassigned and must be pinned by device-preflight before a canonical run."

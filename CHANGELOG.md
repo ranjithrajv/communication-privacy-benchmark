@@ -14,6 +14,12 @@ All notable changes to this project are documented in this file. The format foll
 
 ### Added
 
+- Draft Android chat lane declarations for Signal (`org.thoughtcrime.securesms`),
+  WhatsApp (`com.whatsapp`), and Telegram (`org.telegram.messenger`), each with a
+  dedicated synthetic account slot and an explicit settings profile.
+- Draft `chat.link-preview-fetch` check and draft `chat` suite covering the three
+  chat subjects. Both stay non-active until a real adapter, a physical Android device
+  per slot, synthetic phone numbers, and provider-terms review are in place.
 - First real email, webmail, or messaging subject adapter.
 - Pinned Email Privacy Tester gateway and lab deployment.
 - Protected physical-device or regional measurement infrastructure.

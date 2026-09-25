@@ -1,0 +1,22 @@
+schema_version = "1alpha1"
+check_id = "chat.link-preview-fetch"
+version = "1.0.0"
+status = "draft"
+title = "Link preview fetch on message open"
+description = "Determines whether opening a synthetic test message that contains a canary URL causes the client to fetch that URL from the recipient device without an explicit user action, and which destination resolved it. The definition remains draft until the Appium session contract, the canary correlation window, and the evidence redaction contract are approved."
+channel = "chat"
+evidence_class = "measured"
+adapter_id = "unimplemented"
+canonical = true
+timeout_seconds = 1800
+runner_classes = ["self_hosted_android"]
+
+[[threat_models]]
+id = "message.read-disclosure"
+title = "Message read disclosure"
+description = "A party that can observe the canary host learns that a specific synthetic message was opened, potentially together with the reader's IP address, user agent, and request timing, before the reader has interacted with the link."
+
+[[threat_models]]
+id = "message.metadata-disclosure"
+title = "Message metadata disclosure"
+description = "A link preview fetch reveals the presence and timing of an incoming message to a third party that never received the conversation, independent of the messaging provider's own metadata handling."

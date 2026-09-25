@@ -32,8 +32,31 @@ This repository currently provides:
 - Deterministic result-bundle aggregation and checksums.
 - CI for schemas, types, tests, packaging, dependency audit, licenses, and workflow security.
 
-Real email and chat subjects will be added only after their account, runner, evidence,
-and provider-terms requirements are documented.
+## Chat pilot lane
+
+Signal, WhatsApp, and Telegram are declared as Android subjects, with one draft check
+and one draft suite:
+
+```text
+subjects/signal-android-default/1.0.0      org.thoughtcrime.securesms
+subjects/whatsapp-android-default/1.0.0     com.whatsapp
+subjects/telegram-android-default/1.0.0     org.telegram.messenger
+checks/chat/link-preview-fetch/1.0.0        draft
+suites/chat/1.0.0                           draft
+```
+
+These are **lane declarations, not measurements.** They pin the parts of a subject
+that the lab controls — app, package, service, account slot, settings profile, and
+runner class — and deliberately leave the runtime-derived facts unset: app version,
+build, APK hash, device model, OS build, and measurement region. Those are captured by
+`device-preflight` at measurement time, so a subject never asserts an app version that
+was not observed.
+
+The suite stays `draft` until four gates close: a real `chat` adapter, a dedicated
+physical Android device per account slot, a synthetic phone number per app, and a
+provider-terms review. Until then no chat result can be canonical or published.
+
+Real email subjects follow the same gate.
 
 ## Quick start
 
