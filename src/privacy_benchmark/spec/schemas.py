@@ -69,6 +69,8 @@ def validate_document(path: Path, kind: str) -> BaseModel:
         "evidence": registry["evidence.schema.json"],
         "execution-manifest": registry["execution-manifest.schema.json"],
         "run-bundle": registry["run-bundle.schema.json"],
+        "run-rollup": registry["run-rollup.schema.json"],
+        "run-comparison": registry["run-comparison.schema.json"],
     }.get(kind)
     if selected is None:
         raise ValueError(f"unknown schema kind: {kind}")

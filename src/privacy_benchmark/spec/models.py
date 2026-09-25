@@ -6,6 +6,7 @@ generated.  The schemas remain the public, language-neutral contract.
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Annotated, Any, Literal, Self
@@ -145,6 +146,34 @@ class RunnerClass(StrEnum):
 class CompletionState(StrEnum):
     COMPLETE = "complete"
     INCOMPLETE = "incomplete"
+
+
+class RollupOutcome(StrEnum):
+    """Stability verdict for one check across all planned repetitions.
+
+    Only :attr:`PASS` and :attr:`FAIL` are decisive product properties.  Every other
+    value states that the observed sample does not establish one, which is why the
+    longitudinal comparison refuses to order them.
+    """
+
+    PASS = "pass"
+    FAIL = "fail"
+    FLAKY = "flaky"
+    INCONCLUSIVE = "inconclusive"
+    NOT_APPLICABLE = "not_applicable"
+    UNSUPPORTED = "unsupported"
+    INCOMPLETE = "incomplete"
+
+
+class ComparisonVerdict(StrEnum):
+    """Direction of change for one check between two run bundles."""
+
+    NEW = "new"
+    REMOVED = "removed"
+    IMPROVED = "improved"
+    REGRESSED = "regressed"
+    UNCHANGED = "unchanged"
+    UNORDERABLE = "unorderable"
 
 
 class ThreatModelRef(StrictModel):
@@ -420,6 +449,164 @@ class RunBundleManifest(StrictModel):
         return self
 
 
+class StatusTally(StrictModel):
+    status: ResultStatus
+    count: int = Field(ge=1)
+
+
+class CheckRollup(StrictModel):
+    """Repeated-measurement summary for one check against one subject."""
+
+    schema_version: Literal["1alpha1"] = SCHEMA_VERSION
+    check: CheckRef
+    subject: SubjectRef
+    outcome: RollupOutcome
+    observations: int = Field(ge=0)
+    expected_observations: int = Field(gt=0)
+    pass_count: int = Field(ge=0)
+    fail_count: int = Field(ge=0)
+    decisive_count: int = Field(ge=0)
+    pass_rate: float | None = Field(default=None, ge=0.0, le=1.0)
+    pass_rate_low: float | None = Field(default=None, ge=0.0, le=1.0)
+    pass_rate_high: float | None = Field(default=None, ge=0.0, le=1.0)
+    statuses: tuple[StatusTally, ...] = ()
+    reason_codes: tuple[Identifier, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_rollup(self) -> Self:
+        if self.pass_count + self.fail_count != self.decisive_count:
+            raise ValueError("decisive_count must equal pass_count plus fail_count")
+        if self.decisive_count > self.observations:
+            raise ValueError("decisive_count cannot exceed observations")
+        if sum(tally.count for tally in self.statuses) != self.observations:
+            raise ValueError("status tallies must sum to observations")
+        if (self.pass_rate is None) != (self.decisive_count == 0):
+            raise ValueError("pass_rate must be absent when no decisive observation exists")
+        if self.pass_rate is not None and not math.isclose(
+            self.pass_rate,
+            self.pass_count / self.decisive_count,
+            abs_tol=1e-6,
+        ):
+            raise ValueError("pass_rate must equal pass_count divided by decisive_count")
+        if (self.pass_rate_low is None) != (self.pass_rate is None):
+            raise ValueError("confidence bounds must accompany pass_rate")
+        if (self.pass_rate_high is None) != (self.pass_rate is None):
+            raise ValueError("confidence bounds must accompany pass_rate")
+        return self
+
+
+class SubjectRollup(StrictModel):
+    subject: SubjectRef
+    client_version: str | None = Field(default=None, min_length=1, max_length=128)
+    platform: PlatformDefinition | None = None
+    checks: tuple[CheckRollup, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_rollups_unique(self) -> Self:
+        keys = [(item.check.check_id, item.check.version) for item in self.checks]
+        if len(keys) != len(set(keys)):
+            raise ValueError("subject rollup checks must be unique")
+        return self
+
+
+class RunRollup(StrictModel):
+    """Repetition-level summary of one run bundle.
+
+    A rollup is derived analysis, never a benchmark result.  It summarizes how stable
+    each per-check outcome was across the planned repetitions.
+    """
+
+    schema_version: Literal["1alpha1"] = SCHEMA_VERSION
+    rollup_id: UUID
+    bundle_id: UUID
+    suite_id: Identifier
+    suite_version: Version
+    plan_id: UUID
+    created_at: UtcDateTime
+    bundle_created_at: UtcDateTime
+    bundle_completion: CompletionState
+    repetitions: int = Field(ge=1, le=20)
+    subjects: tuple[SubjectRollup, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_rollup(self) -> Self:
+        keys = [(item.subject.subject_id, item.subject.subject_version) for item in self.subjects]
+        if len(keys) != len(set(keys)):
+            raise ValueError("run rollup subjects must be unique")
+        for subject in self.subjects:
+            for check in subject.checks:
+                if check.expected_observations != self.repetitions:
+                    raise ValueError("check rollup expectations must match planned repetitions")
+        return self
+
+
+class CheckDelta(StrictModel):
+    """Change for one check between a baseline and a candidate bundle."""
+
+    check: CheckRef
+    subject: SubjectRef
+    verdict: ComparisonVerdict
+    baseline_outcome: RollupOutcome | None = None
+    candidate_outcome: RollupOutcome | None = None
+    baseline_check_version: Version | None = None
+    candidate_check_version: Version | None = None
+    baseline_subject_version: Version | None = None
+    candidate_subject_version: Version | None = None
+    baseline_pass_rate: float | None = Field(default=None, ge=0.0, le=1.0)
+    candidate_pass_rate: float | None = Field(default=None, ge=0.0, le=1.0)
+    version_changed: bool = False
+
+
+class RunComparison(StrictModel):
+    """Longitudinal comparison of two run bundles.
+
+    Verdicts are only ordered when both bundles established a decisive pass or fail.
+    A flaky, inconclusive, unsupported, or under-sampled result is reported as
+    :attr:`ComparisonVerdict.UNORDERABLE` rather than scored.
+    """
+
+    schema_version: Literal["1alpha1"] = SCHEMA_VERSION
+    comparison_id: UUID
+    created_at: UtcDateTime
+    baseline_bundle_id: UUID
+    candidate_bundle_id: UUID
+    baseline_created_at: UtcDateTime
+    candidate_created_at: UtcDateTime
+    baseline_suite: str = Field(min_length=1, max_length=256)
+    candidate_suite: str = Field(min_length=1, max_length=256)
+    improved: int = Field(ge=0)
+    regressed: int = Field(ge=0)
+    unchanged: int = Field(ge=0)
+    unorderable: int = Field(ge=0)
+    added: int = Field(ge=0)
+    removed: int = Field(ge=0)
+    deltas: tuple[CheckDelta, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_comparison(self) -> Self:
+        if self.baseline_bundle_id == self.candidate_bundle_id:
+            raise ValueError("a comparison requires two distinct bundles")
+        if self.baseline_created_at > self.candidate_created_at:
+            raise ValueError("the baseline bundle cannot be newer than the candidate bundle")
+        counted = {
+            ComparisonVerdict.IMPROVED: self.improved,
+            ComparisonVerdict.REGRESSED: self.regressed,
+            ComparisonVerdict.UNCHANGED: self.unchanged,
+            ComparisonVerdict.UNORDERABLE: self.unorderable,
+            ComparisonVerdict.NEW: self.added,
+            ComparisonVerdict.REMOVED: self.removed,
+        }
+        actual = {verdict: 0 for verdict in counted}
+        for delta in self.deltas:
+            actual[delta.verdict] += 1
+        if actual != counted:
+            raise ValueError("verdict counts must match the recorded deltas")
+        keys = [(delta.subject.subject_id, delta.check.check_id) for delta in self.deltas]
+        if len(keys) != len(set(keys)):
+            raise ValueError("each subject and check pair may appear only once")
+        return self
+
+
 def utc_now() -> datetime:
     """Return an aware UTC timestamp."""
 
@@ -437,6 +624,8 @@ def schema_model_registry() -> dict[str, type[StrictModel]]:
         "evidence.schema.json": EvidenceRecord,
         "execution-manifest.schema.json": ExecutionManifest,
         "run-bundle.schema.json": RunBundleManifest,
+        "run-rollup.schema.json": RunRollup,
+        "run-comparison.schema.json": RunComparison,
     }
 
 
@@ -457,4 +646,9 @@ def schema_model_dependencies() -> dict[type[StrictModel], set[type[Any]]]:
         EvidenceRecord: {CollectorRef, RedactionPolicy},
         ExecutionManifest: {SubjectDefinition, ResultFileRef, GitHubProvenance},
         RunBundleManifest: {RunPlan, ExecutionManifest, SubjectRef},
+        CheckRollup: {CheckRef, SubjectRef},
+        SubjectRollup: {SubjectRef, PlatformDefinition, CheckRollup},
+        RunRollup: {SubjectRollup},
+        CheckDelta: {CheckRef, SubjectRef},
+        RunComparison: {CheckDelta},
     }

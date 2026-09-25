@@ -14,6 +14,11 @@ import click
 from privacy_benchmark.adapters.base import AdapterRegistry
 from privacy_benchmark.adapters.fake import FakeAdapter
 from privacy_benchmark.harness.aggregation import aggregate_run
+from privacy_benchmark.harness.analysis import (
+    summarize_rollup,
+    write_comparison,
+    write_rollup,
+)
 from privacy_benchmark.harness.execution import (
     ExecutionOutcome,
     finalize_execution,
@@ -26,7 +31,7 @@ from privacy_benchmark.harness.planning import (
     resolve_execution_mode,
 )
 from privacy_benchmark.spec.constants import PACKAGE_VERSION
-from privacy_benchmark.spec.models import ExecutionMode, RunPlan
+from privacy_benchmark.spec.models import CompletionState, ExecutionMode, RunPlan
 from privacy_benchmark.spec.registry import Registry
 from privacy_benchmark.spec.schemas import export_schemas, validate_document
 from privacy_benchmark.spec.serialization import read_model_json, write_model_json
@@ -123,6 +128,8 @@ def schemas_export(output_dir: Path, *, check: bool) -> None:
             "evidence",
             "execution-manifest",
             "run-bundle",
+            "run-rollup",
+            "run-comparison",
         ]
     ),
     required=True,
@@ -320,6 +327,97 @@ def aggregate_command(*, plan: Path, executions: Path, output: Path, force: bool
     )
     if outcome.manifest.completion.value != "complete":
         raise click.exceptions.Exit(2)
+
+
+@main.command("rollup")
+@click.option(
+    "--bundle",
+    type=click.Path(path_type=Path, file_okay=False, exists=True),
+    required=True,
+    help="A run bundle produced by 'pt-bench aggregate'.",
+)
+@click.option(
+    "--output",
+    type=click.Path(path_type=Path, dir_okay=False),
+    required=True,
+    help="Where to write the rollup. Must be outside the bundle.",
+)
+def rollup_command(*, bundle: Path, output: Path) -> None:
+    """Summarize how stable each per-check outcome was across repetitions."""
+
+    try:
+        rollup = write_rollup(bundle, output)
+    except Exception as error:
+        raise click.ClickException(str(error)) from error
+    _emit_json(
+        {
+            "output": str(output),
+            "rollup_id": str(rollup.rollup_id),
+            "bundle_id": str(rollup.bundle_id),
+            "bundle_completion": rollup.bundle_completion,
+            "repetitions": rollup.repetitions,
+            "outcomes": summarize_rollup(rollup),
+        }
+    )
+    if rollup.bundle_completion is not CompletionState.COMPLETE:
+        raise click.exceptions.Exit(2)
+
+
+@main.command("compare")
+@click.option(
+    "--baseline",
+    type=click.Path(path_type=Path, file_okay=False, exists=True),
+    required=True,
+    help="The earlier run bundle.",
+)
+@click.option(
+    "--candidate",
+    type=click.Path(path_type=Path, file_okay=False, exists=True),
+    required=True,
+    help="The later run bundle.",
+)
+@click.option(
+    "--output",
+    type=click.Path(path_type=Path, dir_okay=False),
+    required=True,
+    help="Where to write the comparison. Must be outside both bundles.",
+)
+@click.option(
+    "--fail-on-regression",
+    is_flag=True,
+    help="Exit non-zero when any check regressed.",
+)
+def compare_command(
+    *, baseline: Path, candidate: Path, output: Path, fail_on_regression: bool
+) -> None:
+    """Report per-check change between two run bundles without scoring them."""
+
+    try:
+        comparison = write_comparison(
+            baseline_directory=baseline,
+            candidate_directory=candidate,
+            output=output,
+        )
+    except Exception as error:
+        raise click.ClickException(str(error)) from error
+    _emit_json(
+        {
+            "output": str(output),
+            "comparison_id": str(comparison.comparison_id),
+            "baseline_bundle_id": str(comparison.baseline_bundle_id),
+            "candidate_bundle_id": str(comparison.candidate_bundle_id),
+            "baseline_suite": comparison.baseline_suite,
+            "candidate_suite": comparison.candidate_suite,
+            "improved": comparison.improved,
+            "regressed": comparison.regressed,
+            "unchanged": comparison.unchanged,
+            "unorderable": comparison.unorderable,
+            "added": comparison.added,
+            "removed": comparison.removed,
+        }
+    )
+    if fail_on_regression and comparison.regressed:
+        raise click.exceptions.Exit(1)
 
 
 def _emit_execution_outcome(outcome: ExecutionOutcome) -> None:

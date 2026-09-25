@@ -1,0 +1,329 @@
+{
+  "$defs": {
+    "CheckDelta": {
+      "additionalProperties": false,
+      "description": "Change for one check between a baseline and a candidate bundle.",
+      "properties": {
+        "baseline_check_version": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Check Version"
+        },
+        "baseline_outcome": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RollupOutcome"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "baseline_pass_rate": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Pass Rate"
+        },
+        "baseline_subject_version": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Subject Version"
+        },
+        "candidate_check_version": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Candidate Check Version"
+        },
+        "candidate_outcome": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RollupOutcome"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "candidate_pass_rate": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Candidate Pass Rate"
+        },
+        "candidate_subject_version": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Candidate Subject Version"
+        },
+        "check": {
+          "$ref": "#/$defs/CheckRef"
+        },
+        "subject": {
+          "$ref": "#/$defs/SubjectRef"
+        },
+        "verdict": {
+          "$ref": "#/$defs/ComparisonVerdict"
+        },
+        "version_changed": {
+          "default": false,
+          "title": "Version Changed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "check",
+        "subject",
+        "verdict"
+      ],
+      "title": "CheckDelta",
+      "type": "object"
+    },
+    "CheckRef": {
+      "additionalProperties": false,
+      "properties": {
+        "check_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$",
+          "title": "Check Id",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "check_id",
+        "version"
+      ],
+      "title": "CheckRef",
+      "type": "object"
+    },
+    "ComparisonVerdict": {
+      "description": "Direction of change for one check between two run bundles.",
+      "enum": [
+        "new",
+        "removed",
+        "improved",
+        "regressed",
+        "unchanged",
+        "unorderable"
+      ],
+      "title": "ComparisonVerdict",
+      "type": "string"
+    },
+    "RollupOutcome": {
+      "description": "Stability verdict for one check across all planned repetitions.\n\nOnly :attr:`PASS` and :attr:`FAIL` are decisive product properties.  Every other\nvalue states that the observed sample does not establish one, which is why the\nlongitudinal comparison refuses to order them.",
+      "enum": [
+        "pass",
+        "fail",
+        "flaky",
+        "inconclusive",
+        "not_applicable",
+        "unsupported",
+        "incomplete"
+      ],
+      "title": "RollupOutcome",
+      "type": "string"
+    },
+    "SubjectRef": {
+      "additionalProperties": false,
+      "properties": {
+        "subject_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$",
+          "title": "Subject Id",
+          "type": "string"
+        },
+        "subject_version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+          "title": "Subject Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "subject_id",
+        "subject_version"
+      ],
+      "title": "SubjectRef",
+      "type": "object"
+    }
+  },
+  "$id": "urn:communication-privacy-benchmark:schema:run-comparison:1alpha1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Longitudinal comparison of two run bundles.\n\nVerdicts are only ordered when both bundles established a decisive pass or fail.\nA flaky, inconclusive, unsupported, or under-sampled result is reported as\n:attr:`ComparisonVerdict.UNORDERABLE` rather than scored.",
+  "properties": {
+    "added": {
+      "minimum": 0,
+      "title": "Added",
+      "type": "integer"
+    },
+    "baseline_bundle_id": {
+      "format": "uuid",
+      "title": "Baseline Bundle Id",
+      "type": "string"
+    },
+    "baseline_created_at": {
+      "format": "date-time",
+      "title": "Baseline Created At",
+      "type": "string"
+    },
+    "baseline_suite": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Baseline Suite",
+      "type": "string"
+    },
+    "candidate_bundle_id": {
+      "format": "uuid",
+      "title": "Candidate Bundle Id",
+      "type": "string"
+    },
+    "candidate_created_at": {
+      "format": "date-time",
+      "title": "Candidate Created At",
+      "type": "string"
+    },
+    "candidate_suite": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Candidate Suite",
+      "type": "string"
+    },
+    "comparison_id": {
+      "format": "uuid",
+      "title": "Comparison Id",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "deltas": {
+      "items": {
+        "$ref": "#/$defs/CheckDelta"
+      },
+      "minItems": 1,
+      "title": "Deltas",
+      "type": "array"
+    },
+    "improved": {
+      "minimum": 0,
+      "title": "Improved",
+      "type": "integer"
+    },
+    "regressed": {
+      "minimum": 0,
+      "title": "Regressed",
+      "type": "integer"
+    },
+    "removed": {
+      "minimum": 0,
+      "title": "Removed",
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": "1alpha1",
+      "default": "1alpha1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "unchanged": {
+      "minimum": 0,
+      "title": "Unchanged",
+      "type": "integer"
+    },
+    "unorderable": {
+      "minimum": 0,
+      "title": "Unorderable",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "comparison_id",
+    "created_at",
+    "baseline_bundle_id",
+    "candidate_bundle_id",
+    "baseline_created_at",
+    "candidate_created_at",
+    "baseline_suite",
+    "candidate_suite",
+    "improved",
+    "regressed",
+    "unchanged",
+    "unorderable",
+    "added",
+    "removed",
+    "deltas"
+  ],
+  "title": "RunComparison",
+  "type": "object"
+}
