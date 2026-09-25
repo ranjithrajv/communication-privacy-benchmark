@@ -50,6 +50,14 @@ def export_schemas(output_dir: Path, *, check: bool = False) -> list[str]:
     return drift_errors
 
 
+def _observation_model() -> type[BaseModel]:
+    """The observation contract is exported by the harness that produces it."""
+
+    from privacy_benchmark.harness.preflight import SubjectObservation
+
+    return SubjectObservation
+
+
 def validate_document(path: Path, kind: str) -> BaseModel:
     """Validate a public document against one registered contract kind."""
 
@@ -71,6 +79,7 @@ def validate_document(path: Path, kind: str) -> BaseModel:
         "run-bundle": registry["run-bundle.schema.json"],
         "run-rollup": registry["run-rollup.schema.json"],
         "run-comparison": registry["run-comparison.schema.json"],
+        "subject-observation": _observation_model(),
     }.get(kind)
     if selected is None:
         raise ValueError(f"unknown schema kind: {kind}")

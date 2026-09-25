@@ -613,6 +613,12 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def _subject_observation_model() -> type[StrictModel]:
+    from privacy_benchmark.harness.preflight import SubjectObservation
+
+    return SubjectObservation
+
+
 def schema_model_registry() -> dict[str, type[StrictModel]]:
     """Return public models that have a committed JSON Schema."""
 
@@ -626,6 +632,9 @@ def schema_model_registry() -> dict[str, type[StrictModel]]:
         "run-bundle.schema.json": RunBundleManifest,
         "run-rollup.schema.json": RunRollup,
         "run-comparison.schema.json": RunComparison,
+        # Imported lazily: the observation contract is declared next to the collectors
+        # that produce it, and importing it at module scope would be circular.
+        "subject-observation.schema.json": _subject_observation_model(),
     }
 
 

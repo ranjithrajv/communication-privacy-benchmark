@@ -36,8 +36,25 @@ from privacy_benchmark.harness.planning import (
     github_provenance_from_environment,
     resolve_execution_mode,
 )
+from privacy_benchmark.harness.preflight import (
+    ClientObservation,
+    FieldStatus,
+    PlatformObservation,
+    build_observation,
+    collect_android_client,
+    collect_android_platform,
+    collect_macos_client,
+    collect_macos_platform,
+    observe_vantage,
+)
 from privacy_benchmark.spec.constants import PACKAGE_VERSION
-from privacy_benchmark.spec.models import CompletionState, ExecutionMode, RunPlan
+from privacy_benchmark.spec.models import (
+    CompletionState,
+    ExecutionMode,
+    RunPlan,
+    SubjectDefinition,
+    SubjectRef,
+)
 from privacy_benchmark.spec.operations import (
     OperationsRegistry,
     ProvisioningState,
@@ -109,6 +126,140 @@ def registry_validate(root: Path) -> None:
             "subjects": len(loaded.subjects),
             "suites": len(loaded.suites),
         }
+    )
+
+
+@main.command("preflight")
+@click.option(
+    "--subject",
+    required=True,
+    help="Subject ID@version from the registry.",
+)
+@click.option(
+    "--root",
+    type=click.Path(path_type=Path, file_okay=False),
+    default=Path(),
+    show_default=True,
+)
+@click.option(
+    "--app-bundle",
+    type=click.Path(path_type=Path, file_okay=False, exists=True),
+    default=None,
+    help="Path to a macOS application bundle, for Apple Mail and Thunderbird subjects.",
+)
+@click.option(
+    "--adb-serial",
+    default=None,
+    help="adb device serial. Required for an Android subject.",
+)
+@click.option(
+    "--vantage-id",
+    default=None,
+    help="Vantage label to record alongside the observed addresses.",
+)
+@click.option(
+    "--observed-address",
+    type=str,
+    multiple=True,
+    help="A source address the canary saw. Repeatable.",
+)
+@click.option(
+    "--output",
+    type=click.Path(path_type=Path, dir_okay=False),
+    required=True,
+    help="Where to write the subject observation.",
+)
+@click.option(
+    "--allow-blocked",
+    is_flag=True,
+    help="Exit zero even when the observation blocks a canonical measurement.",
+)
+def preflight_command(
+    *,
+    subject: str,
+    root: Path,
+    app_bundle: Path | None,
+    adb_serial: str | None,
+    vantage_id: str | None,
+    observed_address: tuple[str, ...],
+    output: Path,
+    allow_blocked: bool,
+) -> None:
+    """Observe the runtime identity a measurement will be attributed to."""
+
+    try:
+        definition = Registry.load(root).resolve_subject(subject)
+        platform_observation, client = _observe_platform(
+            definition, app_bundle=app_bundle, adb_serial=adb_serial
+        )
+        vantage = observe_vantage(
+            vantage_id=vantage_id,
+            remote_addresses=frozenset(observed_address),
+        )
+        observation = build_observation(
+            subject=SubjectRef(
+                subject_id=definition.subject_id, subject_version=definition.subject_version
+            ),
+            client=client,
+            platform_observation=platform_observation,
+            vantage=vantage,
+        )
+        write_model_json(output, observation)
+    except Exception as error:
+        raise click.ClickException(str(error)) from error
+    _emit_json(
+        {
+            "output": str(output),
+            "observation_id": str(observation.observation_id),
+            "subject": subject,
+            "client": observation.client.model_dump(mode="json"),
+            "platform": observation.platform.model_dump(mode="json"),
+            "vantage": observation.vantage.model_dump(mode="json"),
+            "findings": [finding.model_dump(mode="json") for finding in observation.findings],
+            "measurement_ready": observation.measurement_ready,
+        }
+    )
+    if observation.blocks_measurement and not allow_blocked:
+        raise click.exceptions.Exit(2)
+
+
+def _observe_platform(
+    definition: SubjectDefinition,
+    *,
+    app_bundle: Path | None,
+    adb_serial: str | None,
+) -> tuple[PlatformObservation, ClientObservation]:
+    """Dispatch to the collector matching the subject's declared operating system."""
+
+    operating_system = definition.platform.os
+    if operating_system == "macOS":
+        if app_bundle is None:
+            raise click.ClickException(
+                "a macOS subject needs --app-bundle pointing at the installed application"
+            )
+        return collect_macos_platform(), collect_macos_client(app_bundle)
+    if operating_system == "Android":
+        package = definition.client.package_identifier
+        if not package:
+            raise click.ClickException(
+                f"subject {definition.subject_id} declares no package identifier to observe"
+            )
+        return (
+            collect_android_platform(serial=adb_serial),
+            collect_android_client(package=package, serial=adb_serial),
+        )
+    return (
+        PlatformObservation(
+            status=FieldStatus.UNAVAILABLE,
+            os=operating_system,
+            source="none",
+            detail={"reason": f"no collector for {operating_system}"},
+        ),
+        ClientObservation(
+            status=FieldStatus.UNAVAILABLE,
+            source="none",
+            detail={"reason": f"no collector for {operating_system}"},
+        ),
     )
 
 
@@ -222,6 +373,7 @@ def schemas_export(output_dir: Path, *, check: bool) -> None:
             "run-bundle",
             "run-rollup",
             "run-comparison",
+            "subject-observation",
         ]
     ),
     required=True,

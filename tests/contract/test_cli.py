@@ -110,6 +110,99 @@ def test_plan_allows_an_unapproved_run_when_deliberately_overridden(
     assert json.loads(result.output)["mode"] == "github_actions"
 
 
+def test_preflight_blocks_when_the_client_cannot_be_identified(
+    tmp_path: Path, repository_root: Path
+) -> None:
+    """A measurement that cannot be attributed to a build must not look ready."""
+
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "preflight",
+            "--root",
+            str(repository_root),
+            "--subject",
+            "fake-client@1.0.0",
+            "--output",
+            str(tmp_path / "observation.json"),
+        ],
+    )
+    assert result.exit_code == 2, result.output
+    payload = json.loads(result.output)
+    assert payload["measurement_ready"] is False
+    assert any(finding["severity"] == "blocker" for finding in payload["findings"])
+
+
+def test_preflight_reads_a_real_macos_bundle(tmp_path: Path, repository_root: Path) -> None:
+    import plistlib
+
+    bundle = tmp_path / "Mail.app" / "Contents" / "Resources"
+    bundle.mkdir(parents=True)
+    with (bundle / "Info.plist").open("wb") as handle:
+        plistlib.dump(
+            {
+                "CFBundleName": "Mail",
+                "CFBundleShortVersionString": "16.0",
+                "CFBundleVersion": "3724.1.1",
+                "CFBundleIdentifier": "com.apple.mail",
+            },
+            handle,
+            fmt=plistlib.FMT_BINARY,
+        )
+    runner = CliRunner()
+    output = tmp_path / "observation.json"
+    result = runner.invoke(
+        main,
+        [
+            "preflight",
+            "--root",
+            str(repository_root),
+            "--subject",
+            "apple-mail-gmail-consumer@1.0.0",
+            "--app-bundle",
+            str(tmp_path / "Mail.app"),
+            "--vantage-id",
+            "reference-de",
+            "--observed-address",
+            "8.8.8.8",
+            "--output",
+            str(output),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["client"]["version"] == "16.0"
+    assert payload["client"]["build"] == "3724.1.1"
+    assert payload["measurement_ready"] is True
+
+    validation = runner.invoke(
+        main,
+        ["schemas", "validate", "--kind", "subject-observation", str(output)],
+    )
+    assert validation.exit_code == 0, validation.output
+
+
+def test_preflight_refuses_a_macos_subject_without_a_bundle(
+    tmp_path: Path, repository_root: Path
+) -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "preflight",
+            "--root",
+            str(repository_root),
+            "--subject",
+            "thunderbird-gmail-consumer@1.0.0",
+            "--output",
+            str(tmp_path / "observation.json"),
+        ],
+    )
+    assert result.exit_code == 1
+    assert "needs --app-bundle" in result.output
+
+
 def test_full_local_smoke_flow(tmp_path: Path, repository_root: Path) -> None:
     runner = CliRunner()
     plan_path = tmp_path / "plan.json"

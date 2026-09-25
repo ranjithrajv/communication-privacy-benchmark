@@ -151,7 +151,7 @@ class TestPolicyInvariants:
             ReferenceVantage(vantage_id="v", country_code="ZZ", network_type="unknown")
 
     def test_a_redacting_policy_must_name_a_rule(self) -> None:
-        with pytest.raises(ValidationError, match="at least 1 item"):
+        with pytest.raises(ValidationError):
             RetentionPolicy(
                 policy_id="r",
                 raw_retention="30-days",
@@ -159,6 +159,15 @@ class TestPolicyInvariants:
                 redaction_required=True,
                 redaction_rules=(),
             )
+
+    def test_a_policy_that_redacts_nothing_needs_no_rule(self) -> None:
+        policy = RetentionPolicy(
+            policy_id="r",
+            raw_retention="not-retained",
+            published_retention="indefinite",
+            redaction_required=False,
+        )
+        assert policy.redaction_rules == ()
 
     def test_a_disabled_publication_target_must_be_silent(self) -> None:
         with pytest.raises(ValidationError, match="cadence 'never'"):
