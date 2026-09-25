@@ -44,7 +44,7 @@ The official Appium Python client is maintained by the Appium organization, supp
 | Unit/integration tests | pytest | Mature fixture/plugin ecosystem for Python and automation adapters |
 | Property-based tests | Hypothesis | Useful for schema round trips, parser edge cases, and idempotency behavior |
 | Formatting/linting | Ruff | Fast formatter, import management, and linting |
-| Static typing | mypy with Pydantic plugin | Stable typed checks across spec, harness, CLI, and adapters |
+| Static typing | ty | Strict-by-default typed checks across spec, harness, CLI, and adapters, with native Pydantic support |
 | Coverage | coverage.py | Core-package branch coverage reporting in CI |
 | Web automation | Playwright for Python | Official Python API, traces/HAR/video/screenshots, persistent profiles, and browser-version provenance |
 | Mobile automation | Appium-Python-Client 6.x | Official Appium client; communicates with Appium 3 over W3C WebDriver |
@@ -74,7 +74,7 @@ These are version families observed on 25 September 2026, not floating dependenc
 - HTTPX 0.28.x
 - pytest 9.x and pytest-cov 7.x
 - Ruff 0.16.x
-- mypy 2.3.x
+- ty 0.0.x
 - Node.js 24.21 LTS for the external Appium 3 server; Playwright's Python package versions its bundled driver separately
 - Appium server 3.7.x
 - Appium-Python-Client 6.0.7
@@ -383,7 +383,7 @@ Reconsider components only when evidence requires it:
 
 - `uv sync --locked` and `uv run --locked`
 - Ruff format check and lint
-- mypy
+- ty
 - pytest unit/property tests
 - Wheel and source-distribution installation checks
 - Fake/local canary and upstream contract fixtures

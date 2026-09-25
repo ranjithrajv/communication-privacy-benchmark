@@ -6,7 +6,7 @@ Describe the user-visible or scientific behavior change.
 
 - [ ] `uv run --locked ruff format --check .`
 - [ ] `uv run --locked ruff check .`
-- [ ] `uv run --locked mypy src tests`
+- [ ] `uv run --locked ty check src tests`
 - [ ] `uv run --locked pytest`
 - [ ] `uv run --locked pt-bench registry validate`
 - [ ] `uv run --locked pt-bench schemas export --output-dir schemas/v1alpha1 --check`

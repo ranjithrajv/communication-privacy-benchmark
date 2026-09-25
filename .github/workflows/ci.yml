@@ -72,7 +72,7 @@ jobs:
         run: uv run --locked ruff check .
 
       - name: Type check
-        run: uv run --locked mypy src tests
+        run: uv run --locked ty check src tests
 
       - name: Test
         run: >-

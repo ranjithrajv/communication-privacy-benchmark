@@ -101,7 +101,7 @@ class _CanaryHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def do_GET(self) -> None:
-        ledger: CanaryLedger = self.server.ledger  # type: ignore[attr-defined]
+        ledger: CanaryLedger = self.server.ledger  # ty: ignore[unresolved-attribute]
         parsed_code = _code_from_path(self.path)
         ledger.record(
             CanaryEvent(
@@ -144,7 +144,7 @@ class HttpCanary:
     def __init__(self, ledger: CanaryLedger) -> None:
         self._ledger = ledger
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), _CanaryHandler)
-        self._server.ledger = ledger  # type: ignore[attr-defined]
+        self._server.ledger = ledger  # ty: ignore[unresolved-attribute]
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
 
     def start(self) -> None:

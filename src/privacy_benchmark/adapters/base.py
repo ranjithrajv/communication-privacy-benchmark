@@ -92,4 +92,10 @@ def freeze_json(value: Mapping[str, Any]) -> dict[str, JsonValue]:
 
     # Pydantic validates the final public model. This helper prevents accidental
     # inclusion of arbitrary Python objects in the details mapping.
-    return dict(value)
+    #
+    # The suppression is a ty limitation, not a hole: ty expands Pydantic's recursive
+    # `JsonValue` alias into a union containing `dict[str, Never]` and then fails to
+    # recognise that expansion as a subtype of itself, so `dict[str, Any]` is reported
+    # as not matching the `dict[str, JsonValue]` it is being returned against. mypy
+    # accepts this because `Any` is assignable to `JsonValue`.
+    return dict(value)  # ty: ignore[invalid-return-type]

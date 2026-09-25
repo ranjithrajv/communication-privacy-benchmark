@@ -8,7 +8,7 @@ All first-party contributions are licensed under AGPL-3.0-only.
 uv sync --locked --all-extras --all-groups
 uv run --locked ruff format --check .
 uv run --locked ruff check .
-uv run --locked mypy src tests
+uv run --locked ty check src tests
 uv run --locked pytest
 uv audit --locked --preview-features audit-command
 uv run --locked pt-bench registry validate

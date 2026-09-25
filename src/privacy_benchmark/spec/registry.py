@@ -139,7 +139,10 @@ def parse_reference(reference: str) -> tuple[str, str]:
 def _read_toml(path: Path) -> dict[str, object]:
     try:
         with path.open("rb") as handle:
-            value = tomllib.load(handle)
+            # `tomllib.load` hands back `dict[str, Any]`. Binding it to the type this
+            # function promises keeps the guarantee visible to callers: the returned
+            # table holds `object`, not `Any`, so reading a key still needs a real type.
+            value: dict[str, object] = tomllib.load(handle)
     except (OSError, tomllib.TOMLDecodeError) as error:
         raise DefinitionError(f"{path}: {error}") from error
     if not isinstance(value, dict):

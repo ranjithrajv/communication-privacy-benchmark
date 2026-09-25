@@ -42,11 +42,11 @@ Issues = "https://github.com/ranjithrajv/communication-privacy-benchmark/issues"
 [dependency-groups]
 dev = [
   "hypothesis>=6.135,<7",
-  "mypy>=2.3,<3",
   "pip-licenses>=5,<6",
   "pytest>=9.1,<10",
   "pytest-cov>=7.1,<8",
   "ruff>=0.16,<0.17",
+  "ty>=0.0.84,<0.1",
   "types-jsonschema>=4.26,<5",
 ]
 
@@ -99,13 +99,17 @@ exclude_also = [
   "raise NotImplementedError",
 ]
 
-[tool.mypy]
-python_version = "3.14"
-strict = true
-plugins = ["pydantic.mypy"]
-warn_unreachable = true
-show_error_codes = true
-pretty = true
+[tool.ty.environment]
+python-version = "3.14"
+
+[tool.ty.rules]
+# ty has no `strict` switch: it checks unannotated function bodies and uses non-gradual
+# list inference unconditionally. These are the disabled-by-default rules that approximate
+# mypy's `--strict`; the rest of strict is covered by the defaults.
+dynamic-function-decorator-return = "error"
+missing-type-argument = "error"
+possibly-unresolved-reference = "warn"
+unsound-return-statement = "error"
 
 [tool.ruff]
 target-version = "py314"

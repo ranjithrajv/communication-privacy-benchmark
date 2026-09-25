@@ -309,7 +309,12 @@ class AdbNotificationShade:
         match = _POST_NOTIFICATIONS.search(
             self._raw("shell", "dumpsys", "package", self.package_identifier)
         )
-        return match is not None and match.group("granted") == "true"
+        if match is None:
+            return False
+        # `Match.group` is typed as `str | Any`, which would make the comparison below
+        # `bool | Any`. Binding the group to `str` keeps this a plain `bool`.
+        granted: str = match.group("granted")
+        return granted == "true"
 
     def _lock_keyguard(self) -> bool:
         """Whether the keyguard is engaged, rather than assuming the sleep key worked."""

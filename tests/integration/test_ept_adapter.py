@@ -284,7 +284,7 @@ class TestAdjudicationThroughTheHarness:
             plan=_single_check_plan(local_plan, subject, check),
             subject=subject,
             check=check,
-            adapter=FakeGateway(**kwargs).adapter(),  # type: ignore[arg-type]
+            adapter=FakeGateway(**kwargs).adapter(),  # ty: ignore[invalid-argument-type]
             execution_dir=tmp_path / "0001",
         )
         assert result.status is ResultStatus.INCONCLUSIVE

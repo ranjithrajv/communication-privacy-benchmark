@@ -243,7 +243,7 @@ Recommended jobs:
 3. `python`
    - `uv sync --locked`
    - Ruff formatting and linting
-   - mypy
+   - ty
    - pytest unit/property tests
    - Wheel and source-distribution installation checks
 4. `integration`
