@@ -167,11 +167,51 @@ class GatewayTestState(_GatewayModel):
 #: inconclusive against a gateway that has not yet reported them.
 #:
 #: The names are the upstream EPT test names, which is why this table exists rather than
+#: Upstream vector names, read from ``backend/lib/tests.js`` at ept3 ``c80c093``. These
+#: are the exported function names, not the human-facing ``name`` labels, and they are
+#: the identifier a gateway reports in ``GatewayObservation.vector``. A wrong name here
+#: does not fail loudly: the vector simply never appears in ``state.exercised`` and the
+#: check reports ``inconclusive`` forever, so these are pinned rather than derived.
+MIME_PART_VECTORS: frozenset[str] = frozenset(
+    {
+        "calendarAttach",
+        "calendarHtml",
+        "calendarImage",
+        "calendarStyledDescription",
+        "messageGlobalImg",
+        "rfc822Img",
+        "svgBackgroundImg",
+        "svgFilterFeImage",
+        "svgInlineImage",
+        "svgScriptHref",
+        "svgUse",
+        "svgXxe",
+        "vcardPhoto",
+    }
+)
+LIST_UNSUBSCRIBE_VECTORS: frozenset[str] = frozenset({"listUnsubscribe"})
+#: Vectors that ask the client to fetch a resource it was not asked to render. Upstream
+#: ``dnsImg`` is deliberately absent: its ``img-test`` label is not matched by the DNS
+#: watcher's anchor/link regex, so a client that prefetches it would be recorded clean.
+BACKGROUND_VECTORS: frozenset[str] = frozenset(
+    {
+        "background",
+        "backgroundImage",
+        "borderImage",
+        "listStyleImage",
+        "svgBackgroundImg",
+        "tableBackground",
+    }
+)
+
 #: a channel-level requirement: upstream watchers are label-restricted, so "a DNS watcher
 #: was up" does not mean "this vector's label was watched".
 REQUIRED_EXERCISED: Mapping[str, frozenset[str]] = {
     "email.dns-prefetch": frozenset({"dnsAnchor"}),
     "email.reader-identification": frozenset({"img"}),
+    "email.mime-remote-part": frozenset(MIME_PART_VECTORS),
+    "email.list-unsubscribe-fetch": frozenset(LIST_UNSUBSCRIBE_VECTORS),
+    "email.background-fetch": frozenset(BACKGROUND_VECTORS),
 }
 
 
@@ -189,6 +229,12 @@ class Adjudication(StrEnum):
     RESOLVER_DISCLOSED = "ept.resolver-disclosed"
     NO_RESOLUTION_OBSERVED = "ept.no-resolution-observed"
     READER_IDENTIFIED = "ept.reader-identified"
+    MIME_PART_DISCLOSED = "ept.mime-part-disclosed"
+    NO_MIME_PART_CONTENT_OBSERVED = "ept.no-mime-part-content-observed"
+    LIST_UNSUBSCRIBE_DISCLOSED = "ept.list-unsubscribe-disclosed"
+    NO_LIST_UNSUBSCRIBE_FETCH_OBSERVED = "ept.no-list-unsubscribe-fetch-observed"
+    BACKGROUND_FETCH_DISCLOSED = "ept.background-fetch-disclosed"
+    NO_BACKGROUND_FETCH_OBSERVED = "ept.no-background-fetch-observed"
     UNSUPPORTED_CHECK = "ept.unsupported-check"
 
 
@@ -458,6 +504,166 @@ def adjudicate_reader_identification(
     )
 
 
+def _attributed_client_activity(
+    *, check_id: str, observations: tuple[GatewayObservation, ...], state: GatewayTestState
+) -> list[GatewayObservation]:
+    """Client-attributable contacts, rejecting a foreign probe id first.
+
+    A gateway that mixed another test's observations into this one would silently
+    manufacture a disclosure for the wrong message, so the probe id is checked before
+    any activity is counted.
+    """
+
+    foreign = [item for item in observations if item.probe_id != state.probe_id]
+    if foreign:
+        raise AdapterError(f"gateway returned {len(foreign)} observations for another probe id")
+    return _client_observations(observations)
+
+
+def adjudicate_mime_remote_part(
+    *,
+    state: GatewayTestState,
+    observations: tuple[GatewayObservation, ...],
+    open_asserted: bool,
+) -> tuple[ResultStatus, Adjudication, str]:
+    """Decide ``email.mime-remote-part``.
+
+    Remote references outside the top-level HTML body are a separate disclosure from body
+    remote content: a client that blocks body images while rendering a calendar invite or
+    an SVG still tells the canary the message was opened. Upstream types every one of
+    these vectors ``http``, so a provider-side fetch is indistinguishable here and is
+    reported as unattributed rather than scored as a client behaviour.
+    """
+
+    validity = _settle_validity(state=state, open_asserted=open_asserted)
+    if validity is not None:
+        return validity
+
+    client = _attributed_client_activity(
+        check_id="email.mime-remote-part", observations=observations, state=state
+    )
+    hits = sorted({item.vector for item in client if item.vector in MIME_PART_VECTORS})
+    if hits:
+        return (
+            ResultStatus.FAIL,
+            Adjudication.MIME_PART_DISCLOSED,
+            f"The client fetched remote references from non-body MIME parts "
+            f"({', '.join(hits)}), so a client that suppresses body images can still be "
+            f"disclosed by a calendar, vCard, SVG, or nested message part.",
+        )
+    if observations:
+        return (
+            ResultStatus.INCONCLUSIVE,
+            Adjudication.UNATTRIBUTED_ACTIVITY,
+            "Non-body canary activity was observed but none could be attributed to the "
+            "client, so no client result is claimed.",
+        )
+    return (
+        ResultStatus.PASS,
+        Adjudication.NO_MIME_PART_CONTENT_OBSERVED,
+        "The message was opened with every watcher healthy, and the client fetched no "
+        "remote reference from a calendar, vCard, SVG, or nested message part.",
+    )
+
+
+def adjudicate_list_unsubscribe_fetch(
+    *,
+    state: GatewayTestState,
+    observations: tuple[GatewayObservation, ...],
+    open_asserted: bool,
+) -> tuple[ResultStatus, Adjudication, str]:
+    """Decide ``email.list-unsubscribe-fetch``.
+
+    A ``List-Unsubscribe`` URL is a fetch request authored by the *provider*, not by the
+    reader, so a client that honours it automatically discloses that a synthetic message
+    reached a mailbox and was processed, with no reader interaction at all.
+    """
+
+    validity = _settle_validity(state=state, open_asserted=open_asserted)
+    if validity is not None:
+        return validity
+
+    client = _attributed_client_activity(
+        check_id="email.list-unsubscribe-fetch", observations=observations, state=state
+    )
+    if [item for item in client if item.vector in LIST_UNSUBSCRIBE_VECTORS]:
+        return (
+            ResultStatus.FAIL,
+            Adjudication.LIST_UNSUBSCRIBE_DISCLOSED,
+            "The client fetched the URL supplied in the List-Unsubscribe header without "
+            "any reader interaction, disclosing that the message reached a mailbox and "
+            "was processed by the client.",
+        )
+    if observations:
+        return (
+            ResultStatus.INCONCLUSIVE,
+            Adjudication.UNATTRIBUTED_ACTIVITY,
+            "Canary activity was observed but none could be attributed to the client, so "
+            "no client result is claimed.",
+        )
+    return (
+        ResultStatus.PASS,
+        Adjudication.NO_LIST_UNSUBSCRIBE_FETCH_OBSERVED,
+        "The message was opened with every watcher healthy, and the client did not fetch "
+        "the List-Unsubscribe URL.",
+    )
+
+
+def adjudicate_background_fetch(
+    *,
+    state: GatewayTestState,
+    observations: tuple[GatewayObservation, ...],
+    open_asserted: bool,
+) -> tuple[ResultStatus, Adjudication, str]:
+    """Decide ``email.background-fetch``.
+
+    The absence of an open is the measurement here, not a missing precondition, so the
+    shared open guard is deliberately not applied: every other check treats an unopened
+    message as unexercised, and applying that rule would make this check report
+    ``inconclusive`` for exactly the run it exists to catch. Delivery and watcher health
+    are still required, because a contact from an undelivered or unwatched run proves
+    nothing.
+    """
+
+    if state.delivered_at is None:
+        return (
+            ResultStatus.INCONCLUSIVE,
+            Adjudication.MESSAGE_NOT_DELIVERED,
+            "The gateway never confirmed delivery, so nothing can be attributed to the client.",
+        )
+    if not state.watchers_healthy:
+        return (
+            ResultStatus.INCONCLUSIVE,
+            Adjudication.WATCHERS_UNHEALTHY,
+            "The canary watchers were not healthy, so an absence of traffic proves nothing.",
+        )
+
+    client = _attributed_client_activity(
+        check_id="email.background-fetch", observations=observations, state=state
+    )
+    if client and not open_asserted:
+        vectors = sorted({item.vector for item in client})
+        return (
+            ResultStatus.FAIL,
+            Adjudication.BACKGROUND_FETCH_DISCLOSED,
+            f"The client contacted the canary for {', '.join(vectors)} without the message "
+            f"ever being opened, so the contact cannot be attributed to a reader action.",
+        )
+    if client:
+        return (
+            ResultStatus.PASS,
+            Adjudication.NO_BACKGROUND_FETCH_OBSERVED,
+            "The canary was contacted only after the message was opened, so no prefetch "
+            "before the reader acted is claimed.",
+        )
+    return (
+        ResultStatus.PASS,
+        Adjudication.NO_BACKGROUND_FETCH_OBSERVED,
+        "The message was delivered with every watcher healthy, and the client made no "
+        "canary contact before the message was opened.",
+    )
+
+
 def _settle_validity(
     *, state: GatewayTestState, open_asserted: bool
 ) -> tuple[ResultStatus, Adjudication, str] | None:
@@ -519,6 +725,18 @@ def _adjudicate_check(
         return adjudicate_reader_identification(
             state=state, observations=observations, open_asserted=open_asserted
         )
+    if check_id == "email.mime-remote-part":
+        return adjudicate_mime_remote_part(
+            state=state, observations=observations, open_asserted=open_asserted
+        )
+    if check_id == "email.list-unsubscribe-fetch":
+        return adjudicate_list_unsubscribe_fetch(
+            state=state, observations=observations, open_asserted=open_asserted
+        )
+    if check_id == "email.background-fetch":
+        return adjudicate_background_fetch(
+            state=state, observations=observations, open_asserted=open_asserted
+        )
     return adjudicate(state=state, observations=observations, open_asserted=open_asserted)
 
 
@@ -548,6 +766,9 @@ class EptGatewayAdapter:
                 "email.remote-content",
                 "email.dns-prefetch",
                 "email.reader-identification",
+                "email.mime-remote-part",
+                "email.list-unsubscribe-fetch",
+                "email.background-fetch",
             }
         )
     )
