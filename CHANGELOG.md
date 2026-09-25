@@ -73,8 +73,15 @@ All notable changes to this project are documented in this file. The format foll
   WhatsApp (`com.whatsapp`), and Telegram (`org.telegram.messenger`), each with a
   dedicated synthetic account slot and an explicit settings profile.
 - Draft `chat.link-preview-fetch` check and draft `chat` suite covering the three
-  chat subjects. Both stay non-active until a real adapter, a physical Android device
-  per slot, synthetic phone numbers, and provider-terms review are in place.
+  chat subjects. Both stay non-active until a physical Android device per slot,
+  synthetic phone numbers, and provider-terms review are in place.
+- Appium chat adapter driving a private canary gateway, plus the gateway contract in
+  `infra/chat/README.md`. Adjudication distinguishes delivered from displayed, reports a
+  resolved-but-unfetched canary name as `partial` rather than a clean client, and does
+  not score a contact that predates delivery against the reader. Per-app selectors ship
+  unverified, so the adapter reports `inconclusive` rather than a fabricated pass.
+- Chat subjects now measure from the reference network vantage instead of the unassigned
+  `ZZ` placeholder, so a chat row and an email row are comparable.
 - First real email, webmail, or messaging subject adapter.
 - Pinned Email Privacy Tester gateway and lab deployment.
 - Protected physical-device or regional measurement infrastructure.
