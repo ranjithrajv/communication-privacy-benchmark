@@ -448,9 +448,12 @@ class TestAdapterBoundaries:
         check: CheckDefinition,
     ) -> None:
         unsupported = CheckDefinition(
-            check_id="email.mime-remote-part",
+            # `referrer-disclosure` is the one email check the adapter still cannot
+            # answer: upstream `callback.js` records only user-agent and
+            # X-Forwarded-For, so the Referer header this check needs is never captured.
+            check_id="email.referrer-disclosure",
             version="1.0.0",
-            title="MIME remote part",
+            title="Referrer and identifier disclosure",
             description="A check the EPT adapter does not implement.",
             channel="email",
             evidence_class="measured",
@@ -540,6 +543,9 @@ class TestAdapterBoundaries:
             "email.remote-content",
             "email.dns-prefetch",
             "email.reader-identification",
+            "email.mime-remote-part",
+            "email.list-unsubscribe-fetch",
+            "email.background-fetch",
         }
 
     def test_every_observation_channel_is_a_real_upstream_mechanism(self) -> None:
