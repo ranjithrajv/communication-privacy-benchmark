@@ -204,12 +204,16 @@
     "ExecutionManifest": {
       "additionalProperties": false,
       "properties": {
-        "adapter_id": {
-          "maxLength": 128,
-          "minLength": 1,
-          "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$",
-          "title": "Adapter Id",
-          "type": "string"
+        "adapter_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Adapter Ids",
+          "type": "array"
         },
         "completed_at": {
           "format": "date-time",
@@ -282,7 +286,7 @@
         "repetition",
         "subject",
         "execution_mode",
-        "adapter_id",
+        "adapter_ids",
         "started_at",
         "completed_at",
         "completion",
