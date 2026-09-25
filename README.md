@@ -35,16 +35,24 @@ This repository currently provides:
 
 ## Chat pilot lane
 
-Signal, WhatsApp, and Telegram are declared as Android subjects, with one draft check
+Signal, WhatsApp, and Telegram are declared as Android subjects, with two draft checks
 and one draft suite:
 
 ```text
 subjects/signal-android-default/1.0.0      org.thoughtcrime.securesms
 subjects/whatsapp-android-default/1.0.0     com.whatsapp
 subjects/telegram-android-default/1.0.0     org.telegram.messenger
-checks/chat/link-preview-fetch/1.0.0        draft
+checks/chat/link-preview-fetch/1.0.0        draft   network surface
+checks/chat/notification-preview/1.0.0      draft   display surface
 suites/chat/1.0.0                           draft
 ```
+
+The two checks observe different surfaces and so need different adapters.
+`link-preview-fetch` watches the network: does opening a message fetch a canary URL?
+`notification-preview` watches the lock screen: how much of the message body does the
+client put in a notification? The second leaks with no canary contact at all, so the
+canary guards do not apply to it and its evidence kind is `notification_shade` rather
+than `canary_event`.
 
 These are **lane declarations, not measurements.** They pin the parts of a subject
 that the lab controls — app, package, service, account slot, settings profile, and
@@ -53,9 +61,15 @@ build, APK hash, device model, OS build, and measurement region. Those are captu
 `device-preflight` at measurement time, so a subject never asserts an app version that
 was not observed.
 
-The suite stays `draft` until four gates close: a real `chat` adapter, a dedicated
-physical Android device per account slot, a synthetic phone number per app, and a
-provider-terms review. Until then no chat result can be canonical or published.
+Each chat subject declares a `notification_privacy` level of `content`, `sender_only`,
+or `none`. One normalized vocabulary across all three apps on purpose: each names this
+setting differently in its own UI, so subjects declare the normalized level and a
+published row compares like with like.
+
+The suite stays `draft` until four gates close: a dedicated physical Android device per
+account slot, a synthetic phone number per app, a provider-terms review, and — for the
+notification check specifically — verification of the `dumpsys` parser against the
+target Android build. Until then no chat result can be canonical or published.
 
 Real email subjects follow the same gate.
 

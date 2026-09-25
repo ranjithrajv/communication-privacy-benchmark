@@ -78,8 +78,7 @@ All notable changes to this project are documented in this file. The format foll
 - `operations/1.0.0/operations.toml`: a versioned operational policy recording the
   reference network vantage, runner lanes, synthetic account recovery procedures,
   canary services, evidence retention and redaction rules, the publication target, and
-  one provider-terms review per subject.
-- A canonical-approval gate: `pt-bench plan` refuses a GitHub Actions run for any
+  one provider-terms review per subject.- A canonical-approval gate: `pt-bench plan` refuses a GitHub Actions run for any
   subject whose provider-terms review is not `approved`, and fails closed when the
   policy is absent. `--allow-unapproved-subjects` bypasses it for a dry run only.
 - `pt-bench operations validate`, which reports per-subject readiness and exits `2`
@@ -98,6 +97,17 @@ All notable changes to this project are documented in this file. The format foll
   unverified, so the adapter reports `inconclusive` rather than a fabricated pass.
 - Chat subjects now measure from the reference network vantage instead of the unassigned
   `ZZ` placeholder, so a chat row and an email row are comparable.
+- Draft `chat.notification-preview` check and a `chat-notification` adapter, covering the
+  lock-screen notification surface that the canary-based checks cannot reach. It reads the
+  notification shade rather than the network, so an empty reading is never evidence: a
+  notification is only read as a disclosure once the shade was readable and a notification
+  was positively due. A body in the notification is a `fail`, a named conversation is a
+  `partial`, and a body shown against a declared `notification_privacy = "none"` is
+  reported as `chat.setting-not-honoured` rather than as a weak default.
+- A `notification_shade` evidence kind, so lock-screen findings are queryable in a
+  published corpus rather than filed as screenshots or application logs.
+- A normalized `notification_privacy` setting (`content`, `sender_only`, `none`) on all
+  three chat subjects, so rows compare across apps that name the setting differently.
 - First real email, webmail, or messaging subject adapter.
 - Pinned Email Privacy Tester gateway and lab deployment.
 - Protected physical-device or regional measurement infrastructure.

@@ -42,6 +42,7 @@
         "packet_capture",
         "browser_trace",
         "screenshot",
+        "notification_shade",
         "app_log",
         "page_source",
         "static_analysis",

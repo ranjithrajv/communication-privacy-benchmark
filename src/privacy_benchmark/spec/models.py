@@ -109,6 +109,7 @@ class EvidenceKind(StrEnum):
     PACKET_CAPTURE = "packet_capture"
     BROWSER_TRACE = "browser_trace"
     SCREENSHOT = "screenshot"
+    NOTIFICATION_SHADE = "notification_shade"
     APP_LOG = "app_log"
     PAGE_SOURCE = "page_source"
     STATIC_ANALYSIS = "static_analysis"

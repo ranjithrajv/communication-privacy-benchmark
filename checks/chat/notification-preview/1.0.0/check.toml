@@ -1,0 +1,22 @@
+schema_version = "1alpha1"
+check_id = "chat.notification-preview"
+version = "1.0.0"
+status = "draft"
+title = "Lock-screen notification preview of message content"
+description = "Delivers a synthetic honey-message containing a unique marker while the device is locked and the app is not foregrounded, then reads the notification shade to determine how much of the message is exposed. Distinguishes a full body preview, a correspondent-identity-only preview, and no preview at all. The definition remains draft until the dumpsys parser is verified against the target Android build and the physical device lane exists. This is a display-surface measurement, not a network one: no canary URL is involved, so an empty reading proves nothing unless the app was positively confirmed to be in a state that would have posted a notification."
+channel = "chat"
+evidence_class = "measured"
+adapter_id = "chat-notification"
+canonical = true
+timeout_seconds = 900
+runner_classes = ["self_hosted_android"]
+
+[[threat_models]]
+id = "device.observer-disclosure"
+title = "Unattended device disclosure"
+description = "A person glancing at a locked or unattended device reads message content or correspondent identity from the notification, without unlocking the device and without the messaging provider's cooperation."
+
+[[threat_models]]
+id = "notification.listener-disclosure"
+title = "Notification listener disclosure"
+description = "A notification listener bound through the platform's notification-listener permission, such as a vendor service, a wearable bridge, or another installed application, ingests the message text that the client chose to place in the notification."

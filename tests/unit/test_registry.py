@@ -249,11 +249,48 @@ def test_chat_subjects_declare_the_privacy_relevant_configuration(registry: Regi
         assert settings["read_receipts"] == "enabled"
 
 
+def test_every_chat_subject_declares_the_notification_privacy_the_check_reads(
+    registry: Registry,
+) -> None:
+    """The check adjudicates against a declared level, so a subject must carry one.
+
+    Without it the adapter falls back to expecting no content, which would report a
+    default-on preview as a setting the client ignored.
+    """
+
+    for subject_id in CHAT_SUBJECTS:
+        settings = {
+            setting.name: setting.value
+            for setting in registry.resolve_subject(f"{subject_id}@1.0.0").configuration.settings
+        }
+        assert settings["notification_privacy"] in {"content", "sender_only", "none"}
+
+
 def test_chat_suite_is_draft_until_the_device_lane_exists(registry: Registry) -> None:
     suite = registry.resolve_suite("chat@1.0.0")
     assert suite.status.value == "draft"
-    assert suite.checks == ("chat.link-preview-fetch@1.0.0",)
+    assert suite.checks == (
+        "chat.link-preview-fetch@1.0.0",
+        "chat.notification-preview@1.0.0",
+    )
     assert {parse_reference(ref)[0] for ref in suite.subjects} == CHAT_SUBJECTS
+
+
+def test_the_notification_check_measures_a_display_surface_not_a_network_one(
+    registry: Registry,
+) -> None:
+    """A lock-screen preview leaks without any canary contact, so the adapter differs."""
+
+    check = registry.resolve_check("chat.notification-preview@1.0.0")
+    assert check.channel.value == "chat"
+    assert check.evidence_class.value == "measured"
+    assert check.adapter_id == "chat-notification"
+    assert check.adapter_id != registry.resolve_check("chat.link-preview-fetch@1.0.0").adapter_id
+    assert check.status.value == "draft"
+    assert {model.id for model in check.threat_models} == {
+        "device.observer-disclosure",
+        "notification.listener-disclosure",
+    }
 
 
 def test_chat_check_targets_the_android_device_lane(registry: Registry) -> None:

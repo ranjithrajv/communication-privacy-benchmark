@@ -37,6 +37,10 @@ value = "enabled"
 name = "contact_sync"
 value = "enabled"
 
+[[configuration.settings]]
+name = "notification_privacy"
+value = "content"
+
 [network_vantage]
 vantage_id = "chat-lane-unselected"
 country_code = "DE"

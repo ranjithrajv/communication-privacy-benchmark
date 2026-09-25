@@ -67,8 +67,6 @@ GATEWAY_URL_VARIABLE = "PT_BENCH_CHAT_GATEWAY_URL"
 GATEWAY_TOKEN_VARIABLE = "PT_BENCH_CHAT_GATEWAY_TOKEN"
 #: A JSON object mapping account slot ids to synthetic phone numbers.
 NUMBERS_VARIABLE = "PT_BENCH_CHAT_NUMBERS"
-#: The Appium server address for the protected Android device lane.
-APPIUM_SERVER_VARIABLE = "PT_BENCH_CHAT_APPIUM_SERVER"
 
 #: A conservative E.164 shape. The number is synthetic, but the format is still checked
 #: so a mis-mapped slot fails loudly instead of delivering a honey-message to whatever
@@ -304,9 +302,20 @@ class ChatGatewayClient:
             transport=self.transport,
         )
 
-    def deliver(self, *, number: str) -> GatewayMessageCreated:
+    def deliver(self, *, number: str, body_marker: str | None = None) -> GatewayMessageCreated:
+        """Deliver a synthetic honey-message to a slot.
+
+        ``body_marker`` places a synthetic token in the message body. Checks that read
+        the network never need it, because the canary URL already identifies the
+        message. Checks that read a display surface do need it, because they must prove
+        that a specific synthetic body reached that surface.
+        """
+
+        payload: dict[str, str] = {"number": number}
+        if body_marker is not None:
+            payload["body_marker"] = body_marker
         with self._client() as client:
-            response = client.post("/v1/honey-messages", json={"number": number})
+            response = client.post("/v1/honey-messages", json=payload)
             response.raise_for_status()
             return GatewayMessageCreated.model_validate(response.json())
 
