@@ -44,7 +44,7 @@ def test_operations_validate_reports_blocked_subjects(repository_root: Path) -> 
     assert result.exit_code == 2, result.output
     payload = json.loads(result.output)
     assert payload["valid"] is True
-    assert payload["publication_target"] == "none"
+    assert payload["publication_target"] == "github_releases"
     blocked = {item["subject"] for item in payload["canonical_blocked_subjects"]}
     assert blocked == {
         "apple-mail-gmail-consumer@1.0.0",

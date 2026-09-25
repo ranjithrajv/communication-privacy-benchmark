@@ -112,9 +112,19 @@ class TestCheckedInPolicy:
         assert set(lanes) == {ProvisioningState.UNPROVISIONED}
         assert set(services) == {ProvisioningState.UNPROVISIONED}
 
-    def test_publication_is_disabled(self, policy: OperationsPolicy) -> None:
-        assert policy.publication.target is PublicationTarget.NONE
+    def test_publication_names_a_target_but_publishes_nothing_yet(
+        self, policy: OperationsPolicy
+    ) -> None:
+        """The target is named so the gate reports real obligations, not "disabled".
+
+        Naming it is not enabling it: the policy is draft and every provider-terms
+        review is pending, so the gate still refuses. Cadence stays "never" because no
+        schedule is wired, and claiming one would overstate what the lab can keep.
+        """
+
+        assert policy.publication.target is PublicationTarget.GITHUB_RELEASES
         assert policy.publication.cadence == "never"
+        assert policy.status is not PolicyStatus.ACTIVE
 
     def test_no_account_procedure_is_approved(self, policy: OperationsPolicy) -> None:
         assert {item.status for item in policy.account_procedures} == {AccountProcedureStatus.DRAFT}

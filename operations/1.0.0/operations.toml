@@ -27,11 +27,11 @@ redaction_rules = [
 notes = "Raw captures are deleted on a fixed schedule. Published evidence keeps only what a third party needs to re-derive the verdict, which is why redaction is mandatory rather than advisory. A published result must remain defensible years after the raw capture is gone."
 
 [publication]
-target = "none"
+target = "github_releases"
 cadence = "never"
 append_only = true
 attested = true
-notes = "Publication is disabled until the first complete canonical bundle exists. 'github_releases' is the intended target: it is append-only, attestable with the existing release workflow, and needs no new vendor relationship. Revisit only if bundle size or retention outgrows a release asset."
+notes = "The target is named so the publication gate reports the outstanding obligations that actually matter rather than stopping at 'target is disabled'. Nothing can publish yet, and this does not change that: the policy is draft, every provider-terms review is pending, and the gate still requires a complete bundle carrying GitHub Actions provenance. 'cadence' stays 'never' because no schedule is wired; a scheduled run would claim a guarantee the lab cannot make until a first bundle exists. Revisit the target only if bundle size or retention outgrows a release asset."
 
 [[runner_lanes]]
 runner_class = "self_hosted_android"
