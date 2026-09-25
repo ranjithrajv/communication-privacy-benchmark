@@ -14,6 +14,7 @@ from privacy_benchmark.spec.models import (
     SubjectRef,
     utc_now,
 )
+from privacy_benchmark.spec.operations import OperationsRegistry
 from privacy_benchmark.spec.registry import Registry, parse_reference
 
 
@@ -64,6 +65,7 @@ def build_run_plan(
     *,
     execution_mode: ExecutionMode,
     github: GitHubProvenance | None,
+    require_canonical_approval: bool = True,
 ) -> RunPlan:
     suite_ref = f"{suite_path.parent.parent.name}@{suite_path.parent.name}"
     parse_reference(suite_ref)
@@ -77,6 +79,12 @@ def build_run_plan(
         SubjectRef(subject_id=identifier, subject_version=version)
         for identifier, version in (parse_reference(reference) for reference in suite.subjects)
     )
+    if require_canonical_approval and execution_mode is ExecutionMode.GITHUB_ACTIONS:
+        # A canonical run is the only kind that can become a published result, so this
+        # is the last point at which an unapproved interaction can be refused.
+        OperationsRegistry.load(root).require_canonical_approval(
+            tuple((ref.subject_id, ref.subject_version) for ref in subjects)
+        )
     return RunPlan(
         plan_id=uuid7(),
         name=f"{suite.suite_id}@{suite.version}",

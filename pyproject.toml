@@ -63,6 +63,7 @@ include = [
   "/checks",
   "/subjects",
   "/suites",
+  "/operations",
   "/schemas",
   "/tests",
   "/tools",

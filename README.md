@@ -30,6 +30,7 @@ This repository currently provides:
 - A check/subject/suite registry with coverage validation.
 - A fake adapter for end-to-end GitHub Actions smoke testing.
 - Deterministic result-bundle aggregation and checksums.
+- Repetition roll-up and longitudinal bundle comparison.
 - CI for schemas, types, tests, packaging, dependency audit, licenses, and workflow security.
 
 ## Chat pilot lane
@@ -90,6 +91,17 @@ uv run --locked pt-bench aggregate \
   --plan build/smoke-plan.json \
   --executions build/executions \
   --output build/run-bundle
+
+# Reduce the bundle to a per-check stability verdict across repetitions.
+uv run --locked pt-bench rollup \
+  --bundle build/run-bundle \
+  --output build/run-rollup.json
+
+# Compare this run against an earlier one, without collapsing checks into a score.
+uv run --locked pt-bench compare \
+  --baseline build/previous-run-bundle \
+  --candidate build/run-bundle \
+  --output build/run-comparison.json
 ```
 
 Local runs record `execution.mode = "local"` and cannot become canonical benchmark
@@ -99,13 +111,77 @@ results. GitHub Actions records `execution.mode = "github_actions"` with run pro
 
 ```text
 pt-bench registry validate
+pt-bench operations validate
 pt-bench schemas export
 pt-bench schemas validate PATH...
-pt-bench plan --suite ... --output ...
+pt-bench plan --suite ... --output ... [--allow-unapproved-subjects]
 pt-bench execute --plan ... --subject ... --adapter ... --output-dir ...
 pt-bench finalize --plan ... --execution-dir ...
 pt-bench aggregate --plan ... --executions ... --output ...
+pt-bench rollup --bundle ... --output ...
+pt-bench compare --baseline ... --candidate ... --output ... [--fail-on-regression]
 ```
+
+## Operational policy and the canonical gate
+
+`operations/1.0.0/operations.toml` records the decisions that must exist before any
+canonical measurement: the reference network vantage, runner lanes, synthetic account
+recovery procedures, canary services, evidence retention and redaction rules, the
+publication target, and one provider-terms review per subject.
+
+`pt-bench operations validate` reports readiness. It exits `2` while anything is still
+blocked, which is the current state, and `1` only when the policy is missing or invalid.
+
+The load-bearing part is the gate in `pt-bench plan`: a GitHub Actions run is refused
+for any subject whose provider-terms review is not `approved`.
+
+```console
+$ pt-bench plan --suite suites/chat/1.0.0/suite.toml --output plan.json
+Error: subject signal-android-default@1.0.0 has a pending provider-terms review;
+canonical runs require an approved review
+subject whatsapp-android-default@1.0.0 has a pending provider-terms review;
+canonical runs require an approved review
+subject telegram-android-default@1.0.0 has a pending provider-terms review;
+canonical runs require an approved review
+```
+
+This fails closed on purpose. The largest existential risk in this project is not a
+wrong measurement; it is a provider account being terminated for automating an
+interaction its terms do not permit, which would destroy the lab rather than corrupt one
+row. Approving a review is a human decision that requires a reviewer, the terms URL, and
+the specific actions being authorized — see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Only `fake-client` is currently approved, and that approval covers only the account-free
+harness path. It deliberately authorizes no product claim.
+
+## Reading a run
+
+A run bundle holds one raw result per check, per subject, per repetition. Two derived
+views sit on top of it, and neither is a benchmark result:
+
+`pt-bench rollup` reduces the repetitions to one stability verdict per check:
+
+| Outcome | Meaning |
+|---|---|
+| `pass` / `fail` | Every repetition agreed. A stable product property. |
+| `flaky` | Both a pass and a fail occurred. Not a stable property. |
+| `inconclusive` | No stable pass or fail, e.g. a pass mixed with an error. |
+| `not_applicable` / `unsupported` | Every repetition agreed the check does not apply. |
+| `incomplete` | Fewer repetitions than planned. No stability claim is made. |
+
+A pass rate and a 95% Wilson score interval accompany every decisive check. The
+interval is wide at small repetition counts, which is the point: three passing runs are
+reported as the evidence they are, not as a guarantee.
+
+`pt-bench compare` reports the direction of change between two bundles. Only a verdict
+that established a pass or a fail on both sides is ordered as `improved` or
+`regressed`; anything else is `unorderable` and is deliberately left unscored. New and
+dropped checks are reported as `added` and `removed`, and a client or check version
+bump is flagged on the same row rather than split into two.
+
+Both commands verify bundle checksums before reading and refuse to write inside a
+bundle, so the evidence record stays append-only. `compare --fail-on-regression` exits
+non-zero on a regression for use in a scheduled lane.
 
 ## Repository layout
 
@@ -114,6 +190,7 @@ src/privacy_benchmark/   First-party Python package
 checks/                  Versioned check definitions
 subjects/                Versioned subject definitions
 suites/                  Versioned suite definitions
+operations/              Versioned operational policy and approval gate
 schemas/v1alpha1/        Generated public JSON Schemas
 infra/                   Persistent canary and runner configuration
 .github/workflows/       Canonical execution and CI workflows

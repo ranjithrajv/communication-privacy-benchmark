@@ -32,6 +32,11 @@ from privacy_benchmark.harness.planning import (
 )
 from privacy_benchmark.spec.constants import PACKAGE_VERSION
 from privacy_benchmark.spec.models import CompletionState, ExecutionMode, RunPlan
+from privacy_benchmark.spec.operations import (
+    OperationsRegistry,
+    ProvisioningState,
+    ReviewDecision,
+)
 from privacy_benchmark.spec.registry import Registry
 from privacy_benchmark.spec.schemas import export_schemas, validate_document
 from privacy_benchmark.spec.serialization import read_model_json, write_model_json
@@ -84,6 +89,72 @@ def registry_validate(root: Path) -> None:
             "suites": len(loaded.suites),
         }
     )
+
+
+@main.group("operations")
+def operations() -> None:
+    """Inspect the checked-in operational policy that gates canonical runs."""
+
+
+@operations.command("validate")
+@click.option(
+    "--root",
+    type=click.Path(path_type=Path, file_okay=False),
+    default=Path(),
+    show_default=True,
+)
+def operations_validate(root: Path) -> None:
+    """Validate the operations policy and report canonical readiness per subject."""
+
+    try:
+        loaded = OperationsRegistry.load(root)
+    except Exception as error:
+        raise click.ClickException(str(error)) from error
+
+    policy = loaded.policy
+    decisions: dict[str, int] = {}
+    unmeasured: list[dict[str, str]] = []
+    for review in policy.terms_reviews:
+        decisions[review.decision.value] = decisions.get(review.decision.value, 0) + 1
+        if review.decision is not ReviewDecision.APPROVED:
+            unmeasured.append(
+                {
+                    "subject": f"{review.subject_id}@{review.subject_version}",
+                    "provider": review.provider,
+                    "decision": review.decision.value,
+                }
+            )
+    unprovisioned = sorted(
+        {
+            lane.runner_class.value
+            for lane in policy.runner_lanes
+            if lane.provisioning is not ProvisioningState.PROVISIONED
+        }
+        | {
+            service.service_id
+            for service in policy.canary_services
+            if service.provisioning is not ProvisioningState.PROVISIONED
+        }
+    )
+    _emit_json(
+        {
+            "valid": True,
+            "policy": str(loaded.path.relative_to(root)),
+            "operations_version": policy.version,
+            "status": policy.status,
+            "reference_vantage": policy.reference_vantage.vantage_id,
+            "publication_target": policy.publication.target,
+            "runner_lanes": len(policy.runner_lanes),
+            "account_procedures": len(policy.account_procedures),
+            "canary_services": len(policy.canary_services),
+            "terms_reviews": len(policy.terms_reviews),
+            "review_decisions": decisions,
+            "canonical_blocked_subjects": unmeasured,
+            "unprovisioned_infrastructure": unprovisioned,
+        }
+    )
+    if unmeasured or unprovisioned:
+        raise click.exceptions.Exit(2)
 
 
 @main.group("schemas")
@@ -172,7 +243,14 @@ def schemas_validate(paths: tuple[Path, ...], *, kind: str) -> None:
     default=None,
     help="Defaults to github_actions inside Actions and local elsewhere.",
 )
-def plan_command(*, suite: Path, output: Path, root: Path, mode: str | None) -> None:
+@click.option(
+    "--allow-unapproved-subjects",
+    is_flag=True,
+    help="Plan a GitHub Actions run without approved provider-terms reviews.",
+)
+def plan_command(
+    *, suite: Path, output: Path, root: Path, mode: str | None, allow_unapproved_subjects: bool
+) -> None:
     """Create a run plan from a checked-in suite."""
 
     try:
@@ -183,6 +261,7 @@ def plan_command(*, suite: Path, output: Path, root: Path, mode: str | None) -> 
             root,
             execution_mode=execution_mode,
             github=github,
+            require_canonical_approval=not allow_unapproved_subjects,
         )
         write_model_json(output, plan)
     except Exception as error:

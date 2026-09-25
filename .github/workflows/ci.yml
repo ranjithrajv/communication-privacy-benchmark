@@ -46,6 +46,18 @@ jobs:
       - name: Validate definition registry
         run: uv run --locked pt-bench registry validate
 
+      - name: Validate operations policy
+        # Exit 2 means the policy is valid but canonical measurement is still blocked,
+        # which is the expected state until Phase 1 provisions a lane. Exit 1 means the
+        # policy is missing or invalid, and must fail the run.
+        run: |
+          uv run --locked pt-bench operations validate
+          status=$?
+          if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
+            echo "operations policy is invalid" >&2
+            exit "$status"
+          fi
+
       - name: Check committed JSON Schemas
         run: uv run --locked pt-bench schemas export --output-dir schemas/v1alpha1 --check
 

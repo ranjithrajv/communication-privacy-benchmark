@@ -9,6 +9,15 @@ from click.testing import CliRunner
 
 from privacy_benchmark.cli.main import main
 
+GITHUB_ENVIRONMENT = {
+    "GITHUB_REPOSITORY": "owner/repository",
+    "GITHUB_WORKFLOW": "Email benchmark",
+    "GITHUB_JOB": "measure",
+    "GITHUB_RUN_ID": "12345",
+    "GITHUB_RUN_ATTEMPT": "1",
+    "GITHUB_SHA": "a" * 40,
+}
+
 
 def test_registry_and_schema_commands(repository_root: Path) -> None:
     runner = CliRunner()
@@ -27,6 +36,74 @@ def test_registry_and_schema_commands(repository_root: Path) -> None:
         ],
     )
     assert schema_result.exit_code == 0, schema_result.output
+
+
+def test_operations_validate_reports_blocked_subjects(repository_root: Path) -> None:
+    runner = CliRunner()
+    result = runner.invoke(main, ["operations", "validate", "--root", str(repository_root)])
+    assert result.exit_code == 2, result.output
+    payload = json.loads(result.output)
+    assert payload["valid"] is True
+    assert payload["publication_target"] == "none"
+    blocked = {item["subject"] for item in payload["canonical_blocked_subjects"]}
+    assert blocked == {
+        "signal-android-default@1.0.0",
+        "whatsapp-android-default@1.0.0",
+        "telegram-android-default@1.0.0",
+    }
+    assert payload["unprovisioned_infrastructure"]
+
+
+def test_operations_validate_reports_a_missing_policy(tmp_path: Path) -> None:
+    runner = CliRunner()
+    result = runner.invoke(main, ["operations", "validate", "--root", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "missing operations policy" in result.output
+
+
+def test_plan_refuses_an_unapproved_canonical_chat_run(repository_root: Path) -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "plan",
+            "--root",
+            str(repository_root),
+            "--suite",
+            str(repository_root / "suites" / "chat" / "1.0.0" / "suite.toml"),
+            "--output",
+            str(repository_root / "build" / "chat-plan.json"),
+            "--mode",
+            "github_actions",
+        ],
+        env={"GITHUB_ACTIONS": "true", **GITHUB_ENVIRONMENT},
+    )
+    assert result.exit_code == 1
+    assert "pending provider-terms review" in result.output
+
+
+def test_plan_allows_an_unapproved_run_when_deliberately_overridden(
+    tmp_path: Path, repository_root: Path
+) -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "plan",
+            "--root",
+            str(repository_root),
+            "--suite",
+            str(repository_root / "suites" / "chat" / "1.0.0" / "suite.toml"),
+            "--output",
+            str(tmp_path / "chat-plan.json"),
+            "--mode",
+            "github_actions",
+            "--allow-unapproved-subjects",
+        ],
+        env={"GITHUB_ACTIONS": "true", **GITHUB_ENVIRONMENT},
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["mode"] == "github_actions"
 
 
 def test_full_local_smoke_flow(tmp_path: Path, repository_root: Path) -> None:

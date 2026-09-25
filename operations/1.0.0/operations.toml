@@ -1,0 +1,169 @@
+schema_version = "1alpha1"
+operations_id = "lab-operations"
+version = "1.0.0"
+status = "draft"
+title = "Reference lab operational policy"
+description = "Records the operational decisions that must exist before any canonical measurement: the reference network vantage, runner lanes, account recovery procedures, canary services, evidence retention and redaction, publication target, and per-subject provider-terms reviews. This policy is draft because the reference vantage is not selected, no runner lane is provisioned, and no provider-terms review has been approved. 'pt-bench plan' refuses a canonical (GitHub Actions) run for any subject without an approved review."
+
+[reference_vantage]
+vantage_id = "reference-vantage-unselected"
+country_code = "DE"
+network_type = "residential-fiber-unselected"
+provider = "unselected"
+residential = true
+notes = "Placeholder decision. A residential vantage is chosen deliberately: consumer messaging and mail services routinely serve datacenter addresses differently, and a datacenter IP would not represent the population a privacy claim is about. 'DE' is recorded only so the field is a real country code; the actual provider, ASN, and city must be pinned here before a canonical run, together with the justification for that region."
+
+[retention]
+policy_id = "evidence-retention-v1"
+raw_retention = "30-days-then-delete"
+published_retention = "indefinite"
+redaction_required = true
+redaction_rules = [
+  "strip account-identifying headers from captured email and message payloads",
+  "replace canary identifiers that could resolve to a real account",
+  "drop packet payloads that contain credentials or session tokens",
+  "hash or truncate client and server identifiers not required to explain a result",
+]
+notes = "Raw captures are deleted on a fixed schedule. Published evidence keeps only what a third party needs to re-derive the verdict, which is why redaction is mandatory rather than advisory. A published result must remain defensible years after the raw capture is gone."
+
+[publication]
+target = "none"
+cadence = "never"
+append_only = true
+attested = true
+notes = "Publication is disabled until the first complete canonical bundle exists. 'github_releases' is the intended target: it is append-only, attestable with the existing release workflow, and needs no new vendor relationship. Revisit only if bundle size or retention outgrows a release asset."
+
+[[runner_lanes]]
+runner_class = "self_hosted_android"
+lane_id = "android-device-bank"
+provisioning = "unprovisioned"
+hosting = "self-hosted-physical-devices"
+runner_count = 3
+notes = "Three physical Android devices, one per chat account slot, on a private network. Physical devices are required: emulators change TLS, push, and background scheduling behavior, which is exactly what these checks measure."
+
+[[runner_lanes]]
+runner_class = "self_hosted_macos"
+lane_id = "apple-mail-device-bank"
+provisioning = "unprovisioned"
+hosting = "self-hosted-physical-macs"
+runner_count = 2
+notes = "Physical Macs for the native Apple Mail and Thunderbird subjects. Held at arm64 and x86_64 so a result is not implicitly tied to one architecture."
+
+[[runner_lanes]]
+runner_class = "self_hosted_regional"
+lane_id = "reference-vantage-host"
+provisioning = "unprovisioned"
+hosting = "self-hosted-residential-line"
+runner_count = 1
+notes = "The reference vantage host. This lane is what makes the country code in reference_vantage real rather than nominal."
+
+[[canary_services]]
+service_id = "email-privacy-tester"
+role = "email remote-content canary and protocol watchers"
+hosting = "self-hosted-gateway"
+provisioning = "unprovisioned"
+pinned_version = "ept3-at-reviewed-commit"
+notes = "Upstream EPT is GPL-3.0. It is reached only through a private gateway that exposes the versioned contract in adapters/ept.py; the benchmark never calls undocumented EPT routes and never scrapes its UI or database. Pin an exact commit and record the relicensing position before the corpus is adapted."
+
+[[canary_services]]
+service_id = "honeymessages-canary"
+role = "chat honey-message and honey-link delivery"
+hosting = "self-hosted"
+provisioning = "unprovisioned"
+pinned_version = "framework-at-reviewed-commit"
+notes = "MIT-licensed. The framework is a research artifact from 2024, so attribution rules and anti-abuse controls need to be written down before it carries scheduled traffic."
+
+[[account_procedures]]
+provider = "Signal"
+account_type = "synthetic-mobile-number"
+slot_id = "slot-signal-0001"
+status = "draft"
+authentication_method = "phone_number_sms"
+recovery_process = "UNWRITTEN. Record the exact re-registration path for a lost synthetic number, who performs it, and how the device backup is discarded. A number is the account identity here, so an unrecoverable slot ends the measurement lane rather than pausing it."
+recovery_owner = "unassigned"
+recovery_tested = false
+notes = "Cannot be approved until recovery is written down and rehearsed once on a throwaway number."
+
+[[account_procedures]]
+provider = "WhatsApp"
+account_type = "synthetic-mobile-number"
+slot_id = "slot-whatsapp-0001"
+status = "draft"
+authentication_method = "phone_number_sms"
+recovery_process = "UNWRITTEN. Record the re-registration path, the two-step verification owner, and the expected wait before a number is reusable. Document the account-health signals that would indicate a provider-side restriction."
+recovery_owner = "unassigned"
+recovery_tested = false
+notes = "Highest account-risk subject in the chat lane. Automation is expected to be constrained by provider terms, which the terms review must record before any run."
+
+[[account_procedures]]
+provider = "Telegram"
+account_type = "synthetic-mobile-number"
+slot_id = "slot-telegram-0001"
+status = "draft"
+authentication_method = "phone_number_sms"
+recovery_process = "UNWRITTEN. Record the re-registration path and how a restricted or banned slot is detected and reported."
+recovery_owner = "unassigned"
+recovery_tested = false
+notes = "Add session and device-list reset steps: Telegram exposes active sessions, so a stale session is itself an observation risk."
+
+[[account_procedures]]
+provider = "Google"
+account_type = "consumer-gmail"
+slot_id = "slot-gmail-0001"
+status = "draft"
+authentication_method = "oauth2_with_app_password"
+recovery_process = "UNWRITTEN. Record the recovery address, the recovery-code storage location, and the re-consent path for OAuth scopes. Note that revoking and re-granting app passwords changes the account configuration under test."
+recovery_owner = "unassigned"
+recovery_tested = false
+notes = "One account is shared by the Apple Mail, Thunderbird, and FairEmail subjects so the client is the only variable. Sharing is deliberate and must be stated in any published row."
+
+[[terms_reviews]]
+subject_id = "signal-android-default"
+subject_version = "1.0.0"
+decision = "pending"
+provider = "Signal"
+terms_uri = "https://signal.org/legal/terms-of-service/"
+reviewed_on = 2026-09-25
+reviewed_by = "unassigned"
+conditions = []
+notes = "UNREVIEWED. No automation is authorized. Read the acceptable-use terms for automated access, confirm the synthetic-number and contact model is permitted, and record whether a scheduled recurring measurement is allowed at all."
+
+[[terms_reviews]]
+subject_id = "whatsapp-android-default"
+subject_version = "1.0.0"
+decision = "pending"
+provider = "WhatsApp"
+terms_uri = "https://www.whatsapp.com/legal/terms-of-service"
+reviewed_on = 2026-09-25
+reviewed_by = "unassigned"
+conditions = []
+notes = "UNREVIEWED AND HIGHEST RISK. WhatsApp restricts automated access and data collection most aggressively of the three chat subjects. Expect the review to conclude that only a narrow, low-frequency measurement is permissible, or that the subject stays unmeasured. Do not treat a pending review as implicit permission."
+
+[[terms_reviews]]
+subject_id = "telegram-android-default"
+subject_version = "1.0.0"
+decision = "pending"
+provider = "Telegram"
+terms_uri = "https://telegram.org/tos/"
+reviewed_on = 2026-09-25
+reviewed_by = "unassigned"
+conditions = []
+notes = "UNREVIEWED. Confirm whether automated scripted interaction with a synthetic account is treated as a permitted use, and record the acceptable request rate."
+
+[[terms_reviews]]
+subject_id = "fake-client"
+subject_version = "1.0.0"
+decision = "approved"
+provider = "none"
+terms_uri = "fixture://privacy-benchmark/no-provider-terms-apply"
+reviewed_on = 2026-09-25
+reviewed_by = "project-maintainer"
+permitted_actions = [
+  "execute the account-free harness smoke check",
+  "aggregate, roll up, and compare synthetic fixture results",
+]
+conditions = [
+  "results must record execution.mode = 'local' or 'github_actions' with no account",
+  "no result from this subject may be published as a product privacy conclusion",
+]
+notes = "The fake subject contacts no third-party service and holds no account, so provider terms do not apply. The approval exists so the harness and the roll-up and comparison paths can be exercised in CI before any real lane is provisioned. It deliberately does not authorize any product claim."
