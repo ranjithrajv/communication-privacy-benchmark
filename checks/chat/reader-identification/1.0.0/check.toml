@@ -1,0 +1,22 @@
+schema_version = "1alpha1"
+check_id = "chat.reader-identification"
+version = "1.0.0"
+status = "draft"
+title = "Reader identification disclosed to the canary"
+description = "Determines what the canary can learn about the reader from a single canary contact carried by a chat client: source address, user agent, and any relay or address chain. This is measured separately from chat.link-preview-fetch because it asks a different question. A client may suppress every preview fetch and still disclose the reader through a contact made on the user's behalf, and a client that fetches may disclose only a coarse address. The gateway must therefore report the source address and user agent on every observation, because attributing a contact to the reader rather than to provider or relay infrastructure requires a vantage observation and an address-attribution source; an observation carrying neither is partial rather than a pass, since an unidentified contact is not evidence of a private reader. Only client-attributed contacts are scored, so a relay-side prefetch is never reported as a direct reader disclosure. Remains draft until the Appium per-app selectors are verified against a physical device, the canary gateway is deployed and reports the reader-identifying fields, and the Android lane exists."
+channel = "chat"
+evidence_class = "measured"
+adapter_id = "chat-appium"
+canonical = true
+timeout_seconds = 1800
+runner_classes = ["self_hosted_android"]
+
+[[threat_models]]
+id = "reader.location-disclosure"
+title = "Reader location disclosure"
+description = "A party operating the canary learns the reader's IP address and approximate location, and can correlate the synthetic conversation with a person or handset."
+
+[[threat_models]]
+id = "reader.device-fingerprint"
+title = "Reader device fingerprint"
+description = "A party operating the canary learns the chat client build and operating system from the user agent, and can single out a reader on a shared or NATed address, which is the normal case for mobile networks."

@@ -222,6 +222,28 @@ All notable changes to this project are documented in this file. The format foll
 - Pinned Email Privacy Tester gateway and lab deployment.
 - Protected physical-device or regional measurement infrastructure.
 
+### Added
+
+- `chat.reader-identification`, the third chat check, measuring what one canary contact
+  reveals rather than whether a contact happened. It is deliberately separate from
+  `chat.link-preview-fetch` because the two can disagree in both directions: a client can
+  suppress every preview and still hand the canary a source address through anything that
+  fetches on the user's behalf, and a client that fetches may disclose only a coarse
+  address. Folding either case into the other would report a fetch as if it were an
+  identification. The gateway already received a source address and user agent on every
+  observation and discarded them, so this is mostly new adjudication over data the adapter
+  was already collecting. The identified fields are `source_address` and `user_agent`, and
+  both matter for chat specifically: carrier NAT means many subscribers share one egress,
+  so the address alone often cannot single out a handset and the user agent is frequently
+  the only thing that does. A client-attributed contact carrying either is a `fail`; a
+  contact carrying neither is `partial`, because something was contacted and the gateway
+  simply did not say what it learned — reporting that as a clean reader would turn a
+  missing gateway capability into a privacy result. Relay and provider contacts are never
+  scored: Signal routes through relays, and a relay-side contact identifies the relay, not
+  the person. Validity is settled first in the same order as the preview check, so an
+  undelivered message, unhealthy watchers, or a message that was never rendered all yield
+  `inconclusive` rather than a pass.
+
 ### Changed
 
 - The chat suite runs three repetitions instead of one, and the chat lane's subject job

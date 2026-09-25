@@ -4,7 +4,11 @@ version = "1.0.0"
 status = "draft"
 title = "Chat pilot suite"
 description = "Controlled Android pilot across Signal, WhatsApp, and Telegram on dedicated device and account slots. Draft because the chat adapter, the physical-device lane, and the canary correlation contract are not provisioned yet."
-checks = ["chat.link-preview-fetch@1.0.0", "chat.notification-preview@1.0.0"]
+checks = [
+  "chat.link-preview-fetch@1.0.0",
+  "chat.notification-preview@1.0.0",
+  "chat.reader-identification@1.0.0",
+]
 subjects = [
   "signal-android-default@1.0.0",
   "whatsapp-android-default@1.0.0",
