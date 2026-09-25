@@ -197,7 +197,7 @@ def test_chat_check_targets_the_android_device_lane(registry: Registry) -> None:
     assert check.status.value == "draft"
     assert check.channel.value == "chat"
     assert check.evidence_class.value == "measured"
-    assert check.adapter_id == "unimplemented"
+    assert check.adapter_id == "chat-appium"
     assert [runner.value for runner in check.runner_classes] == ["self_hosted_android"]
 
 
