@@ -462,6 +462,81 @@ def _interpret(
     )
 
 
+class ShadeProbe(BaseModel):
+    """Whether this harness can read a real device's notification dump.
+
+    The parser is written against the documented shape of ``dumpsys notification`` and
+    has only ever been exercised against a hand-built sample. That is a runtime risk,
+    not a documentation one: an unrecognised dump makes every chat notification result
+    ``inconclusive``, so a lane could be built, provisioned, and only then discover
+    that the check cannot run on it.
+
+    This is the preflight answer to that, and it is deliberately allowed to fail. A
+    probe that cannot read the device says so instead of reporting that the device
+    posts no notifications, which is the same confusion the adjudication guard exists
+    to prevent.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    readable: bool
+    record_count: int = Field(default=0, ge=0)
+    packages: tuple[str, ...] = ()
+    title_extras: int = Field(default=0, ge=0)
+    text_extras: int = Field(default=0, ge=0)
+    keyguard_detected: bool | None = None
+    detail: str | None = Field(default=None, max_length=2000)
+
+    @property
+    def usable(self) -> bool:
+        """Whether a run on this device could reach a verdict at all.
+
+        ``readable`` alone is not enough. A dump that parses but carries no string
+        extras cannot tell a preview from an empty notification, so the check would
+        report ``pass`` for want of evidence rather than ``inconclusive``.
+        """
+
+        return bool(
+            self.readable
+            and self.record_count > 0
+            and (self.title_extras > 0 or self.text_extras > 0)
+        )
+
+
+def probe_shade(shade: AdbNotificationShade) -> ShadeProbe:
+    """Read a device's notification dump and report what the parser could see.
+
+    Safe to run before a lane is provisioned. It changes no device state: it reads
+    ``dumpsys`` and does not lock, clear, or deliver anything.
+    """
+
+    try:
+        output = shade._run("shell", "dumpsys", "notification", "--noredact")
+    except AdapterError as error:
+        return ShadeProbe(readable=False, detail=str(error)[:2000])
+
+    notifications = parse_dumpsys_notifications(output)
+    if not notifications:
+        return ShadeProbe(
+            readable=False,
+            detail=(
+                "dumpsys output contained no recognizable NotificationRecord entries. The "
+                "parser is written against a documented shape, not a captured one, so an "
+                "unrecognized dump means the chat notification check cannot run on this "
+                "device build rather than that the device posts no notifications."
+            ),
+        )
+    state = shade._state()
+    return ShadeProbe(
+        readable=True,
+        record_count=len(notifications),
+        packages=tuple(sorted({item.package_identifier for item in notifications})),
+        title_extras=sum(1 for item in notifications if item.title),
+        text_extras=sum(1 for item in notifications if item.text),
+        keyguard_detected=state.screen_locked,
+    )
+
+
 @dataclass(slots=True)
 class ChatNotificationAdapter:
     """Runs the chat notification checks the Android lane can answer.
@@ -698,9 +773,11 @@ __all__ = [
     "NotificationPrivacy",
     "NotificationShadeReader",
     "PostedNotification",
+    "ShadeProbe",
     "ShadeReading",
     "adjudicate",
     "new_marker",
     "numbers_config_from_environment",
     "parse_dumpsys_notifications",
+    "probe_shade",
 ]

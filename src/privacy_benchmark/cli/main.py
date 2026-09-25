@@ -20,7 +20,11 @@ from privacy_benchmark.adapters.chat_appium import (
 from privacy_benchmark.adapters.chat_appium import (
     gateway_config_from_environment as chat_gateway_config_from_environment,
 )
-from privacy_benchmark.adapters.chat_notification import ChatNotificationAdapter
+from privacy_benchmark.adapters.chat_notification import (
+    AdbNotificationShade,
+    ChatNotificationAdapter,
+    probe_shade,
+)
 from privacy_benchmark.adapters.ept import (
     EptGatewayAdapter,
     EptGatewayClient,
@@ -734,6 +738,44 @@ def rollup_command(*, bundle: Path, output: Path, as_table: bool) -> None:
             }
         )
     if rollup.bundle_completion is not CompletionState.COMPLETE:
+        raise click.exceptions.Exit(2)
+
+
+@main.command("verify-shade")
+@click.option("--serial", required=True, help="adb serial of the device to probe.")
+@click.option(
+    "--package",
+    "package_identifier",
+    required=True,
+    help="The subject's package, so the probe can read its notification state.",
+)
+def verify_shade_command(*, serial: str, package_identifier: str) -> None:
+    """Check whether this harness can read a device's notification dump.
+
+    The chat notification parser is written against the documented shape of `dumpsys
+    notification`, not against a captured device. An unrecognized dump would make every
+    chat notification result inconclusive, so run this before provisioning a lane rather
+    than discovering it after three devices are locked and three accounts are spent.
+
+    Reads only. It does not lock, clear, or deliver anything. Exits 2 when the device
+    cannot be read, which is a blocker rather than a clean result.
+    """
+
+    probe = probe_shade(AdbNotificationShade(serial=serial, package_identifier=package_identifier))
+    _emit_json(
+        {
+            "serial": serial,
+            "package": package_identifier,
+            "readable": probe.readable,
+            "usable": probe.usable,
+            "record_count": probe.record_count,
+            "packages": list(probe.packages),
+            "title_extras": probe.title_extras,
+            "text_extras": probe.text_extras,
+            "detail": probe.detail,
+        }
+    )
+    if not probe.usable:
         raise click.exceptions.Exit(2)
 
 
