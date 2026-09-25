@@ -1,0 +1,66 @@
+[project]
+name = "canary-gateway"
+version = "0.1.0"
+description = "Private authenticated canary gateway for the communication privacy benchmark."
+readme = "README.md"
+# AGPL-3.0-only, matching the benchmark core. The gateway is a separate distribution
+# because it is long-lived lab infrastructure with its own dependencies, not part of the
+# short-lived CLI that every Actions job installs.
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
+requires-python = ">=3.14"
+dependencies = [
+  "fastapi>=0.141,<0.142",
+  "uvicorn>=0.40,<0.41",
+  "pydantic>=2.13,<3",
+  # Declared directly even though FastAPI pulls it in. FastAPI asks only for
+  # `starlette>=0.46.0`, so the resolver has no reason to prefer a patched release and
+  # will happily take one carrying ten advisories. The floor is set past the last fix
+  # rather than tracked by an ignore list, because one of them -- an unvalidated request
+  # path poisoning `request.url.path` and `request.url.hostname` -- is directly relevant
+  # to a service whose entire job is serving canary URLs and reporting which host was
+  # asked for. A resolver that cannot see the advisory needs the floor stated here.
+  "starlette>=1.3.1",
+]
+
+[project.optional-dependencies]
+# The contract tests drive the benchmark's own gateway client, so the core is needed to
+# prove the two sides of the contract agree rather than merely look like they do.
+contract = [
+  "communication-privacy-benchmark",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=9.1,<10",
+  "httpx>=0.28,<0.29",
+  "ruff>=0.15,<0.16",
+  "ty>=0.0.1a26",
+]
+
+[tool.uv.sources]
+# The core is not published, so the contract tests consume it from the checkout. This
+# resolves into the gateway's own lockfile; the core's uv.lock is not modified, which is
+# the point of keeping these two distributions separate.
+communication-privacy-benchmark = { path = ".." }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/canary_gateway"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# The same selection the benchmark core uses, so the two distributions are held to one
+# standard rather than two. Widening this to `ALL` in one place and not the other would
+# make a lint pass mean different things in different directories.
+select = ["B", "E", "F", "I", "PERF", "PIE", "PT", "PTH", "RET", "RUF", "SIM", "UP", "W"]
+ignore = ["PT011"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
