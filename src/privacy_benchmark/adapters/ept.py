@@ -5,12 +5,19 @@ UI. A small private gateway exposes the versioned contract modelled here and tra
 to the pinned upstream service, so the harness depends on an API boundary the project
 controls rather than on EPT internals.
 
-Adjudication is the delicate part. An empty observation set is the signature of two
-very different worlds: a client that blocked every remote fetch, and a message that was
-never delivered or never opened. Reporting the first as a ``pass`` would manufacture a
-privacy finding out of a broken measurement, so the gateway must positively confirm
-delivery, an open signal, and watcher health before an absence is allowed to mean
-anything. Anything short of that is ``inconclusive``.
+Adjudication is the delicate part, and two upstream facts drive its whole shape. Both
+are verified against the pinned source in ``infra/ept/UPSTREAM_FINDINGS.md``.
+
+First, an empty observation set is the signature of two very different worlds: a client
+that blocked every remote fetch, and a measurement that never exercised the client at
+all. So an absence is only allowed to mean anything once the open has been asserted by
+the harness and the watchers are known healthy.
+
+Second, an observation is not automatically evidence against the client. EPT's own
+documentation warns that provider spam filters prefetch the canary URLs, and those
+lookups are recorded identically to a client-initiated fetch. Scoring them as a client
+leak would publish a false ``fail`` about the provider, so every observation carries an
+origin and only a client-attributed one is scored.
 """
 
 from __future__ import annotations
@@ -21,6 +28,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from typing import Protocol
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
@@ -53,26 +61,41 @@ MAILBOXES_VARIABLE = "PT_BENCH_EPT_MAILBOXES"
 
 
 class ObservationChannel(StrEnum):
-    """A watcher that can observe a client contacting a canary host."""
+    """The three mechanisms that can actually observe a canary contact upstream.
+
+    EPT ships two watcher processes plus the canary web server. There is no standalone
+    TCP watcher: the ``linkPreconnect`` vector is typed ``tcp`` upstream but is observed
+    only by the SNI watcher, so preconnect arrives here as :attr:`TLS_SNI`.
+    """
 
     HTTP = "http"
     DNS = "dns"
     TLS_SNI = "tls_sni"
-    TCP = "tcp"
-    MIME = "mime"
 
 
-#: Observation channels that constitute a remote fetch by the mail client. EPT watches
-#: DNS, TLS SNI, and TCP independently of HTTP because a client can leak the fact that
-#: a message was opened without ever completing an HTTP request.
-REMOTE_FETCH_CHANNELS = frozenset(
-    {
-        ObservationChannel.HTTP,
-        ObservationChannel.DNS,
-        ObservationChannel.TLS_SNI,
-        ObservationChannel.TCP,
-    }
-)
+#: Every channel upstream can produce. A contact on any of them is a canary disclosure;
+#: what decides whether it indicts the *client* is the observation's origin.
+OBSERVATION_CHANNELS = frozenset(ObservationChannel)
+
+
+class ObservationOrigin(StrEnum):
+    """Who initiated a canary contact.
+
+    This distinction is the difference between a finding about a mail client and a
+    finding about a mail provider. Upstream cannot make it: a provider spam filter
+    prefetching the canary is recorded exactly like a client rendering the message, and
+    EPT's own ``dnsAnchor`` text warns that provider resolvers appear "instead of" the
+    recipient's address.
+    """
+
+    CLIENT = "client"
+    PROVIDER = "provider"
+    UNKNOWN = "unknown"
+
+
+#: Origins that can indict the client under test. Anything else is recorded as evidence
+#: but never scored as a client disclosure.
+CLIENT_ATTRIBUTABLE_ORIGINS = frozenset({ObservationOrigin.CLIENT})
 
 
 class _GatewayModel(BaseModel):
@@ -86,10 +109,17 @@ class GatewayTestCreated(_GatewayModel):
 
 
 class GatewayObservation(_GatewayModel):
-    """One canary contact reported by a watcher."""
+    """One canary contact reported by a watcher.
+
+    ``vector`` carries the upstream EPT test name (``img``, ``dnsAnchor``,
+    ``linkPreconnect``, …) because a benchmark row is about a specific vector, not a
+    channel. ``origin`` is the gateway's attribution of who initiated the contact.
+    """
 
     channel: ObservationChannel
     probe_id: Identifier
+    vector: str = Field(min_length=1, max_length=64)
+    origin: ObservationOrigin = ObservationOrigin.UNKNOWN
     remote_host: str = Field(min_length=1, max_length=253)
     observed_at: UtcDateTime
     resource: str | None = Field(default=None, max_length=2048)
@@ -104,16 +134,20 @@ class GatewayObservations(_GatewayModel):
 class GatewayTestState(_GatewayModel):
     """What the gateway knows about the probe window for one test.
 
-    ``delivered_at`` and ``opened_at`` are what separate a client that suppressed
-    remote content from a message that never arrived or was never read.
-    ``watchers_healthy`` covers the case where every watcher was down, which would
-    otherwise look exactly like a clean result.
+    Deliberately absent: an open signal. Upstream EPT has none. ``Tests.accessed`` is set
+    when the test mail is *sent* and again on the first callback, so it is not an
+    inbox-delivery or recipient-open confirmation. The open is an interaction the
+    harness performs by driving the client, so it is asserted by the caller instead.
+
+    ``delivered_at`` is a *gateway* capability rather than an upstream one: it is
+    available only because a self-hosted deployment controls its own SMTP path.
+    ``watchers_healthy`` covers every watcher being down, which would otherwise look
+    exactly like a clean result.
     """
 
     test_id: Identifier
     probe_id: Identifier
     delivered_at: UtcDateTime | None = None
-    opened_at: UtcDateTime | None = None
     watchers_healthy: bool = False
     window_expires_at: UtcDateTime
 
@@ -124,9 +158,22 @@ class Adjudication(StrEnum):
     REMOTE_CONTENT_DETECTED = "ept.remote-content-detected"
     NO_REMOTE_CONTENT_OBSERVED = "ept.no-remote-content-observed"
     MESSAGE_NOT_DELIVERED = "ept.message-not-delivered"
-    MESSAGE_NOT_OPENED = "ept.message-not-opened"
+    OPEN_NOT_ASSERTED = "ept.open-not-asserted"
     WATCHERS_UNHEALTHY = "ept.watchers-unhealthy"
+    PROVIDER_PREFETCH_ONLY = "ept.provider-prefetch-only"
+    UNATTRIBUTED_ACTIVITY = "ept.unattributed-activity"
     UNSUPPORTED_CHECK = "ept.unsupported-check"
+
+
+class OpenObserver(Protocol):
+    """Asserts that the harness actually opened the message in the client.
+
+    Upstream EPT has no open signal, so this is the only thing standing between an
+    unexercised probe and a reported ``pass``. An adapter constructed without one always
+    reports ``inconclusive``.
+    """
+
+    def __call__(self, context: ExecutionContext) -> bool: ...
 
 
 class EptGatewayClient:
@@ -182,11 +229,13 @@ def adjudicate(
     *,
     state: GatewayTestState,
     observations: tuple[GatewayObservation, ...],
+    open_asserted: bool,
 ) -> tuple[ResultStatus, Adjudication, str]:
-    """Decide a result from gateway state and observations.
+    """Decide a result from gateway state, observations, and the asserted open.
 
-    The order matters. Measurement validity is settled before the observation set is
-    interpreted, so a broken probe can never be reported as clean client behaviour.
+    Measurement validity is settled before the observation set is interpreted, so a
+    broken probe can never be reported as clean client behaviour. Attribution is settled
+    next, so provider prefetch can never be reported as a client disclosure.
     """
 
     if state.delivered_at is None:
@@ -201,27 +250,49 @@ def adjudicate(
             Adjudication.WATCHERS_UNHEALTHY,
             "The canary watchers were not healthy, so an absence of traffic proves nothing.",
         )
-    if state.opened_at is None:
+    if not open_asserted:
+        # Upstream cannot report an open, so the harness must. Without this the result
+        # would be a claim about a message nobody was shown.
         return (
             ResultStatus.INCONCLUSIVE,
-            Adjudication.MESSAGE_NOT_OPENED,
-            "The message was delivered but no open was observed, so remote-content behavior "
-            "was never exercised.",
+            Adjudication.OPEN_NOT_ASSERTED,
+            "The message was delivered but no open was asserted by the harness, so "
+            "remote-content behavior was never exercised.",
         )
 
     foreign = [item for item in observations if item.probe_id != state.probe_id]
     if foreign:
         raise AdapterError(f"gateway returned {len(foreign)} observations for another probe id")
 
-    remote = [item for item in observations if item.channel in REMOTE_FETCH_CHANNELS]
-    if remote:
-        channels = sorted({item.channel.value for item in remote})
-        hosts = sorted({item.remote_host for item in remote})
+    client = [item for item in observations if item.origin in CLIENT_ATTRIBUTABLE_ORIGINS]
+    if client:
+        vectors = sorted({item.vector for item in client})
+        channels = sorted({item.channel.value for item in client})
         return (
             ResultStatus.FAIL,
             Adjudication.REMOTE_CONTENT_DETECTED,
-            f"After the message was opened the client contacted {len(remote)} canary endpoints "
-            f"over {', '.join(channels)}, disclosing the open to {', '.join(hosts)}.",
+            f"After the message was opened the client itself contacted the canary on "
+            f"{', '.join(channels)} for {', '.join(vectors)}, disclosing the open.",
+        )
+
+    provider = [item for item in observations if item.origin is ObservationOrigin.PROVIDER]
+    if provider and len(provider) == len(observations):
+        vectors = sorted({item.vector for item in provider})
+        return (
+            ResultStatus.INCONCLUSIVE,
+            Adjudication.PROVIDER_PREFETCH_ONLY,
+            f"Only provider infrastructure contacted the canary, for {', '.join(vectors)}. "
+            "That is a provider behavior and says nothing about the client's own fetching, "
+            "so no client result is claimed.",
+        )
+    if observations:
+        # Something contacted the canary and it could not be pinned to the client. That
+        # is not evidence the client is clean, so it must not be reported as a pass.
+        return (
+            ResultStatus.INCONCLUSIVE,
+            Adjudication.UNATTRIBUTED_ACTIVITY,
+            "Canary contacts were observed but none could be attributed to the client, so "
+            "no client result is claimed.",
         )
     return (
         ResultStatus.PASS,
@@ -244,6 +315,7 @@ class EptGatewayAdapter:
     adapter_id: str = "ept"
     version: str = "1.0.0"
     poll_interval_seconds: float = 5.0
+    open_observer: OpenObserver | None = None
     supported_checks: frozenset[str] = field(
         default_factory=lambda: frozenset({"email.remote-content"})
     )
@@ -267,8 +339,11 @@ class EptGatewayAdapter:
         created = self.client.create_test(email=self._mailbox_for(context))
         state = self.client.get_state(created.test_id)
         observations = await self._await_observations(created.test_id, state, check.timeout_seconds)
+        open_asserted = self.open_observer is not None and self.open_observer(context)
 
-        status, reason_code, summary = adjudicate(state=state, observations=observations)
+        status, reason_code, summary = adjudicate(
+            state=state, observations=observations, open_asserted=open_asserted
+        )
         return AdapterOutcome(
             status=status,
             reason_code=reason_code.value,
@@ -278,11 +353,18 @@ class EptGatewayAdapter:
                 "probe_id": created.probe_id,
                 "test_id": created.test_id,
                 "observation_count": len(observations),
-                "remote_fetch_count": sum(
-                    1 for item in observations if item.channel in REMOTE_FETCH_CHANNELS
+                "client_observation_count": sum(
+                    1 for item in observations if item.origin in CLIENT_ATTRIBUTABLE_ORIGINS
                 ),
+                "provider_observation_count": sum(
+                    1 for item in observations if item.origin is ObservationOrigin.PROVIDER
+                ),
+                "unattributed_observation_count": sum(
+                    1 for item in observations if item.origin is ObservationOrigin.UNKNOWN
+                ),
+                "vectors": ",".join(sorted({item.vector for item in observations})),
                 "delivered": state.delivered_at is not None,
-                "opened": state.opened_at is not None,
+                "open_asserted": open_asserted,
                 "watchers_healthy": state.watchers_healthy,
                 "account_slot": context.subject.account.slot_id,
                 "adapter": "ept",
@@ -294,6 +376,7 @@ class EptGatewayAdapter:
                     created=created,
                     state=state,
                     observations=observations,
+                    open_asserted=open_asserted,
                 ),
             ),
         )
@@ -323,8 +406,7 @@ class EptGatewayAdapter:
         deadline = min(state.window_expires_at, utc_now() + timedelta(seconds=timeout_seconds))
         while True:
             payload = self.client.get_observations(test_id)
-            settled = state.delivered_at is not None and state.opened_at is not None
-            if payload.observations or (settled and state.watchers_healthy):
+            if payload.observations or (state.delivered_at is not None and state.watchers_healthy):
                 return payload.observations
             if utc_now() >= deadline:
                 return payload.observations
@@ -332,7 +414,6 @@ class EptGatewayAdapter:
             refreshed = self.client.get_state(test_id)
             if (
                 refreshed.delivered_at != state.delivered_at
-                or refreshed.opened_at != state.opened_at
                 or refreshed.watchers_healthy != state.watchers_healthy
             ):
                 state = refreshed
@@ -345,6 +426,7 @@ class EptGatewayAdapter:
         created: GatewayTestCreated,
         state: GatewayTestState,
         observations: tuple[GatewayObservation, ...],
+        open_asserted: bool,
     ) -> AdapterEvidence:
         evidence_id = ensure_identifier(
             f"{context.execution_id}.{check.check_id}.ept", field_name="evidence_id"
@@ -362,13 +444,15 @@ class EptGatewayAdapter:
                 "test_id": created.test_id,
                 "probe_window": {
                     "delivered_at": _iso(state.delivered_at),
-                    "opened_at": _iso(state.opened_at),
+                    "open_asserted": open_asserted,
                     "watchers_healthy": state.watchers_healthy,
                     "window_expires_at": _iso(state.window_expires_at),
                 },
                 "observations": [
                     {
                         "channel": item.channel.value,
+                        "vector": item.vector,
+                        "origin": item.origin.value,
                         "remote_host": item.remote_host,
                         "observed_at": _iso(item.observed_at),
                         "resource": item.resource,
@@ -398,6 +482,7 @@ class EptGatewayAdapter:
                 "probe_id": created.probe_id,
                 "observation_count": len(observations),
                 "watchers_healthy": state.watchers_healthy,
+                "open_asserted": open_asserted,
             },
         )
 

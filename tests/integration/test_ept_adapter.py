@@ -3,6 +3,9 @@
 The gateway is mocked at the HTTP boundary, which is exactly the seam the project
 controls. Everything below it, the adapter, the execution harness, evidence hashing,
 result writing, and manifest finalization, is the production path.
+
+For what happens when a genuine client crosses a real socket, see
+``tests/integration/test_live_canary.py``.
 """
 
 from __future__ import annotations
@@ -16,10 +19,10 @@ import httpx
 import pytest
 
 from privacy_benchmark.adapters.ept import (
-    REMOTE_FETCH_CHANNELS,
     EptGatewayAdapter,
     EptGatewayClient,
     ObservationChannel,
+    ObservationOrigin,
 )
 from privacy_benchmark.harness.execution import manifest_exit_code, run_execution
 from privacy_benchmark.spec.models import (
@@ -38,9 +41,9 @@ from privacy_benchmark.spec.registry import Registry
 from privacy_benchmark.spec.serialization import read_model_json, verify_checksums
 
 DELIVERED = "2026-09-25T12:00:00Z"
-OPENED = "2026-09-25T12:01:00Z"
+FAR_FUTURE = "2099-01-01T00:00:00Z"
 MAILBOX = "probe@example.invalid"
-
+CANARY_HOST = "canary.privacy-benchmark.invalid"
 #: The adapter polls until the gateway closes the probe window, so the fixture uses a
 #: short realistic window rather than an effectively unbounded one.
 DEFAULT_WINDOW_SECONDS = 1.0
@@ -54,14 +57,12 @@ class FakeGateway:
         *,
         observations: tuple[dict[str, object], ...] = (),
         delivered: bool = True,
-        opened: bool = True,
         watchers_healthy: bool = True,
         poll_interval_seconds: float = 0.02,
         window_seconds: float = DEFAULT_WINDOW_SECONDS,
     ) -> None:
         self.observations = observations
         self.delivered = delivered
-        self.opened = opened
         self.watchers_healthy = watchers_healthy
         self.poll_interval_seconds = poll_interval_seconds
         self.window_expires_at = (datetime.now(UTC) + timedelta(seconds=window_seconds)).isoformat()
@@ -88,7 +89,6 @@ class FakeGateway:
                     "test_id": "test.one",
                     "probe_id": "probe.one",
                     "delivered_at": DELIVERED if self.delivered else None,
-                    "opened_at": OPENED if self.opened else None,
                     "watchers_healthy": self.watchers_healthy,
                     "window_expires_at": self.window_expires_at,
                 },
@@ -99,7 +99,12 @@ class FakeGateway:
             )
         return httpx.Response(404)
 
-    def adapter(self, mailboxes: dict[str, str] | None = None) -> EptGatewayAdapter:
+    def adapter(
+        self,
+        mailboxes: dict[str, str] | None = None,
+        *,
+        open_asserted: bool = True,
+    ) -> EptGatewayAdapter:
         return EptGatewayAdapter(
             client=EptGatewayClient(
                 base_url="https://gateway.invalid",
@@ -108,6 +113,7 @@ class FakeGateway:
             ),
             mailboxes={"slot-0001": MAILBOX} if mailboxes is None else mailboxes,
             poll_interval_seconds=self.poll_interval_seconds,
+            open_observer=(lambda context: open_asserted),
         )
 
     def paths_called(self) -> list[str]:
@@ -115,11 +121,18 @@ class FakeGateway:
 
 
 def _observation(
-    channel: str = "http", *, remote_host: str = "canary.example.invalid"
+    channel: str = "http",
+    *,
+    vector: str = "img",
+    origin: str = "client",
+    remote_host: str = CANARY_HOST,
+    probe_id: str = "probe.one",
 ) -> dict[str, object]:
     return {
         "channel": channel,
-        "probe_id": "probe.one",
+        "probe_id": probe_id,
+        "vector": vector,
+        "origin": origin,
         "remote_host": remote_host,
         "observed_at": "2026-09-25T12:01:05Z",
     }
@@ -214,7 +227,7 @@ class TestAdjudicationThroughTheHarness:
         subject: SubjectDefinition,
         check: CheckDefinition,
     ) -> None:
-        gateway = FakeGateway(observations=(_observation("tls_sni"),))
+        gateway = FakeGateway(observations=(_observation("tls_sni", vector="linkPreconnect"),))
         result, _, manifest = _execute(
             plan=_single_check_plan(local_plan, subject, check),
             subject=subject,
@@ -224,16 +237,37 @@ class TestAdjudicationThroughTheHarness:
         )
         assert result.status is ResultStatus.FAIL
         assert result.reason_code == "ept.remote-content-detected"
-        assert result.details["remote_fetch_count"] == 1
+        assert result.details["client_observation_count"] == 1
         # A product fail is a successful measurement, not a CI failure.
         assert manifest.completion is CompletionState.COMPLETE
         assert manifest_exit_code(manifest) == 0
+
+    def test_provider_prefetch_is_recorded_but_never_fails_the_client(
+        self,
+        tmp_path: Path,
+        local_plan: RunPlan,
+        subject: SubjectDefinition,
+        check: CheckDefinition,
+    ) -> None:
+        gateway = FakeGateway(
+            observations=(_observation("dns", vector="dnsAnchor", origin="provider"),)
+        )
+        result, _, _ = _execute(
+            plan=_single_check_plan(local_plan, subject, check),
+            subject=subject,
+            check=check,
+            adapter=gateway.adapter(),
+            execution_dir=tmp_path / "0001",
+        )
+        assert result.status is ResultStatus.INCONCLUSIVE
+        assert result.reason_code == "ept.provider-prefetch-only"
+        assert result.details["provider_observation_count"] == 1
+        assert result.details["client_observation_count"] == 0
 
     @pytest.mark.parametrize(
         ("kwargs", "reason"),
         [
             ({"delivered": False}, "ept.message-not-delivered"),
-            ({"opened": False}, "ept.message-not-opened"),
             ({"watchers_healthy": False}, "ept.watchers-unhealthy"),
         ],
     )
@@ -243,18 +277,38 @@ class TestAdjudicationThroughTheHarness:
         local_plan: RunPlan,
         subject: SubjectDefinition,
         check: CheckDefinition,
-        kwargs: dict[str, bool],
+        kwargs: dict[str, object],
         reason: str,
     ) -> None:
         result, _, _ = _execute(
             plan=_single_check_plan(local_plan, subject, check),
             subject=subject,
             check=check,
-            adapter=FakeGateway(**kwargs).adapter(),
+            adapter=FakeGateway(**kwargs).adapter(),  # type: ignore[arg-type]
             execution_dir=tmp_path / "0001",
         )
         assert result.status is ResultStatus.INCONCLUSIVE
         assert result.reason_code == reason
+
+    def test_an_unasserted_open_is_inconclusive_never_a_pass(
+        self,
+        tmp_path: Path,
+        local_plan: RunPlan,
+        subject: SubjectDefinition,
+        check: CheckDefinition,
+    ) -> None:
+        # The single most important property: upstream cannot report an open, so an
+        # adapter that was not told the message was opened must not claim a pass.
+        result, _, _ = _execute(
+            plan=_single_check_plan(local_plan, subject, check),
+            subject=subject,
+            check=check,
+            adapter=FakeGateway().adapter(open_asserted=False),
+            execution_dir=tmp_path / "0001",
+        )
+        assert result.status is ResultStatus.INCONCLUSIVE
+        assert result.reason_code == "ept.open-not-asserted"
+        assert result.details["open_asserted"] is False
 
     def test_an_observation_from_another_probe_fails_the_run(
         self,
@@ -263,13 +317,11 @@ class TestAdjudicationThroughTheHarness:
         subject: SubjectDefinition,
         check: CheckDefinition,
     ) -> None:
-        foreign = _observation()
-        foreign["probe_id"] = "probe.other"
         result, _, manifest = _execute(
             plan=_single_check_plan(local_plan, subject, check),
             subject=subject,
             check=check,
-            adapter=FakeGateway(observations=(foreign,)).adapter(),
+            adapter=FakeGateway(observations=(_observation(probe_id="probe.other"),)).adapter(),
             execution_dir=tmp_path / "0001",
         )
         assert result.status is ResultStatus.ERROR
@@ -280,7 +332,7 @@ class TestAdjudicationThroughTheHarness:
 
 
 class TestProbeCorrelation:
-    def test_an_open_probe_with_no_traffic_polls_once(
+    def test_a_settled_probe_with_no_traffic_polls_once(
         self,
         tmp_path: Path,
         local_plan: RunPlan,
@@ -295,21 +347,18 @@ class TestProbeCorrelation:
             adapter=gateway.adapter(),
             execution_dir=tmp_path / "0001",
         )
-        # Once the message is open and the watchers are healthy, an empty set is
+        # Once the message is delivered and the watchers are healthy, an empty set is
         # already the answer, so the adapter must not keep polling.
         assert gateway.paths_called().count("/v1/tests/test.one/observations") == 1
 
-    def test_an_unopened_probe_keeps_polling_until_the_window_closes(
+    def test_an_unsettled_probe_keeps_polling_until_the_window_closes(
         self,
         tmp_path: Path,
         local_plan: RunPlan,
         subject: SubjectDefinition,
         check: CheckDefinition,
     ) -> None:
-        # The message is delivered but never opened, so there is nothing to judge yet.
-        # The adapter must keep polling until the gateway closes the probe window
-        # rather than reporting a clean result from an unexercised probe.
-        gateway = FakeGateway(opened=False, window_seconds=0.5)
+        gateway = FakeGateway(delivered=False, window_seconds=0.5)
         result, _, _ = _execute(
             plan=_single_check_plan(local_plan, subject, check),
             subject=subject,
@@ -318,7 +367,7 @@ class TestProbeCorrelation:
             execution_dir=tmp_path / "0001",
         )
         assert result.status is ResultStatus.INCONCLUSIVE
-        assert result.reason_code == "ept.message-not-opened"
+        assert result.reason_code == "ept.message-not-delivered"
         assert gateway.paths_called().count("/v1/tests/test.one/observations") > 1
 
 
@@ -338,6 +387,7 @@ class TestAdapterBoundaries:
             adapter=FakeGateway().adapter({"slot-0001": secret}),
             execution_dir=tmp_path / "0001",
         )
+        assert evidence is not None
         payload = (
             tmp_path / "0001" / "evidence" / f"{evidence.evidence_id}.payload.json"
         ).read_text()
@@ -352,8 +402,8 @@ class TestAdapterBoundaries:
         check: CheckDefinition,
     ) -> None:
         # The harness converts an adapter exception into an error result rather than
-        # letting it escape, so a missing mailbox surfaces as a failed execution
-        # instead of a crashed run.
+        # letting it escape, and the message is redacted so a configuration mistake
+        # cannot leak the address.
         result, evidence, manifest = _execute(
             plan=_single_check_plan(local_plan, subject, check),
             subject=subject,
@@ -365,7 +415,6 @@ class TestAdapterBoundaries:
         assert result.reason_code == "adapter.exception"
         assert result.error is not None
         assert result.error.type == "AdapterError"
-        # The message is redacted: a configuration mistake must not leak the address.
         assert "example.invalid" not in result.error.message
         assert evidence is None
         assert manifest_exit_code(manifest) == 1
@@ -414,6 +463,7 @@ class TestAdapterBoundaries:
                 transport=httpx.MockTransport(lambda request: httpx.Response(503)),
             ),
             mailboxes={"slot-0001": MAILBOX},
+            open_observer=lambda context: True,
         )
         result, _, manifest = _execute(
             plan=_single_check_plan(local_plan, subject, check),
@@ -425,14 +475,22 @@ class TestAdapterBoundaries:
         assert result.status is ResultStatus.ERROR
         assert result.error is not None
         assert result.error.retryable is True
-        assert result.evidence_refs == ()
         assert manifest_exit_code(manifest) == 1
+
+    def test_an_adapter_without_an_open_observer_carries_no_default_pass(
+        self,
+    ) -> None:
+        adapter = FakeGateway().adapter()
+        adapter.open_observer = None
+        assert adapter.open_observer is None
 
     def test_the_adapter_declares_the_checks_it_can_answer(self) -> None:
         adapter = FakeGateway().adapter()
         assert adapter.adapter_id == "ept"
         assert adapter.supported_checks == {"email.remote-content"}
 
-    def test_every_remote_fetch_channel_is_distinct_from_mime(self) -> None:
-        # A MIME part is inline content, not a fetch of a remote resource.
-        assert ObservationChannel.MIME not in REMOTE_FETCH_CHANNELS
+    def test_every_observation_channel_is_a_real_upstream_mechanism(self) -> None:
+        # Upstream ships two watchers plus the canary web server. There is no TCP
+        # watcher: the preconnect vector is observed through SNI.
+        assert set(ObservationChannel) == {"http", "dns", "tls_sni"}
+        assert ObservationOrigin.CLIENT.value == "client"

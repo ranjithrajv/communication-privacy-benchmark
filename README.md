@@ -188,35 +188,73 @@ mailbox address cannot reach the repository:
 The adapter is only registered when a gateway is configured, so a checkout without
 credentials cannot accidentally address a real deployment.
 
-### Why an empty observation set is not a pass
+### What is observed, and what is claimed
 
-An empty observation set is the signature of two very different worlds: a client that
-blocked every remote fetch, and a message that was never delivered or never opened.
-Reporting the first as a `pass` would manufacture a privacy finding out of a broken
-measurement, so the gateway must positively confirm **delivery**, an **open**, and
-**watcher health** before an absence is allowed to mean anything:
+The gateway contract is derived from the pinned upstream source, not from its
+documentation. `infra/ept/UPSTREAM_FINDINGS.md` records what was verified, and three
+facts changed the design:
+
+**Only three observation channels exist.** EPT ships two watcher processes plus the canary
+web server. There is no TCP watcher: the preconnect vector is typed `tcp` upstream but is
+observable *only* through the SNI watcher. A MIME watcher does not exist at all.
+
+**EPT has no open signal.** `Tests.accessed` is set when the test mail is *sent* and again
+on the first callback, so it is not a delivery or open confirmation. The open is an
+interaction the harness performs, so the adapter takes an `open_observer` and reports
+`inconclusive` when it is not supplied. An adapter cannot claim a `pass` it did not earn.
+
+**A canary contact is not automatically the client's fault.** EPT's own `dnsAnchor` text
+warns that provider spam filters prefetch the canary, and those lookups are recorded
+exactly like a client rendering the message. Every observation therefore carries an
+`origin`:
+
+| Origin | Result |
+|---|---|
+| `client` | Scored. A client-attributed contact is a `fail`. |
+| `provider` | Recorded as evidence, never scored as a client leak. Provider-only activity is `inconclusive`. |
+| `unknown` | `inconclusive`. Something happened; it cannot be pinned to the client. |
+
+The gateway must also confirm **delivery** and **watcher health** before an absence means
+anything, since upstream records neither.
 
 | Gateway state | Result |
 |---|---|
 | Never delivered | `inconclusive` |
 | Watchers unhealthy | `inconclusive` |
-| Delivered, never opened | `inconclusive` |
-| Opened, watchers healthy, canary contact observed | `fail` |
-| Opened, watchers healthy, no canary contact | `pass` |
-
-DNS, TLS SNI, and TCP observations all count as remote fetches, independently of HTTP.
-A client can leak the fact that a message was opened through a DNS lookup or a
-preconnect and never complete a request, so judging on HTTP alone would miss it.
+| Delivered, open not asserted | `inconclusive` |
+| Opened, client-attributed contact | `fail` |
+| Opened, provider-only or unattributed contact | `inconclusive` |
+| Opened, watchers healthy, no contact | `pass` |
 
 Observations carrying a foreign `probe_id` are rejected rather than adjudicated, so a
 gateway mix-up cannot be reported as a product property.
 
-**This lane is unproven against a real deployment.** The adapter is verified end to end
-against a mocked gateway, which exercises the adapter, the execution harness, evidence
-hashing, and result writing, but no real EPT instance or mailbox has yet confirmed the
-observation semantics. The check and suite stay `draft` for that reason.
+### What has been validated, and what has not
 
-## Reading a run
+`harness/canary.py` runs a real, self-hosted canary: a real HTTP server that serves an
+actual GIF, a real authoritative DNS server that answers over UDP and logs in BIND's
+query format, and real MIME messages carrying real canary URLs.
+`tests/integration/test_live_canary.py` drives it over real sockets and asserts that a
+genuine client fetch and a genuine DNS prefetch are both detected and adjudicated as
+client-attributed failures.
+
+**Validated:** the adapter observes and adjudicates real network activity, the canary
+serves and records real requests, the DNS watcher semantics are reproduced, real MIME
+delivery works, and the full harness path (evidence hashing, result writing, checksums)
+runs against all of it.
+
+**Not validated:** whether a real mail client fetches remote content, and whether a real
+provider mailbox accepts and renders a probe. Both need a provider account and a
+provider-terms approval, which the canonical gate refuses to bypass. `mailboxes` remains
+the one input the lab cannot supply for itself.
+
+Two upstream traps are reproduced deliberately in the canary so a lab learns about them
+rather than tripping over them: the watchers refuse to record the lab's own host address,
+so client and canary must be on different machines; and the DNS watcher's pattern matches
+only the `anchor-test` and `link-test` labels, so the `img-test` label used by the
+`dnsImg` vector can never fire it.
+
+## Reading a run## Reading a run
 
 A run bundle holds one raw result per check, per subject, per repetition. Two derived
 views sit on top of it, and neither is a benchmark result:

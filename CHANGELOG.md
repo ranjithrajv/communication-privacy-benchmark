@@ -8,6 +8,11 @@ All notable changes to this project are documented in this file. The format foll
 
 ### Changed
 
+- The gateway contract no longer claims an observation channel or signal that upstream
+  cannot produce. There is no TCP channel (preconnect arrives via SNI) and no MIME
+  channel, and the open assertion moved from the gateway to the harness, because EPT has
+  no open signal. An adapter constructed without an `open_observer` always reports
+  `inconclusive`.
 - Replaced the separate `pip-audit` development dependency with uv's built-in
   `uv audit --locked --preview-features audit-command` workflow.
 - Pinned the uv CLI to 0.12.18 in every workflow.
@@ -19,13 +24,24 @@ All notable changes to this project are documented in this file. The format foll
   configuration and the slot-to-mailbox mapping are read from the environment, never
   from a checked-in definition, and the adapter is only registered when a gateway is
   configured.
-- A typed gateway observation contract covering HTTP, DNS, TLS SNI, TCP, and MIME
-  watchers, with probe correlation: observations carrying a foreign `probe_id` are
+- A typed gateway observation contract over the three channels upstream can actually
+  produce, with probe correlation: observations carrying a foreign `probe_id` are
   rejected rather than adjudicated.
-- An adjudication guard against false passes. Delivery, an open signal, and watcher
+- An adjudication guard against false passes. Delivery, an asserted open, and watcher
   health must all be confirmed before an empty observation set may be reported as
-  `pass`; anything short of that is `inconclusive`. DNS, TLS SNI, and TCP all count as
-  remote fetches, independently of HTTP.
+  `pass`; anything short of that is `inconclusive`.
+- `harness/canary.py`: a real self-hosted canary used to validate the email lane
+  without a third-party account. A real HTTP canary serving an actual GIF, a real
+  authoritative DNS server answering over UDP and logging in BIND's query format, and
+  real MIME messages carrying real canary URLs. `tests/integration/test_live_canary.py`
+  drives it over real sockets.
+- `infra/ept/UPSTREAM_FINDINGS.md`: the upstream source facts the gateway contract is
+  derived from, verified against the pinned repository.
+- Observation origin attribution. EPT records a provider spam filter prefetching the
+  canary identically to a client rendering the message, and its own documentation warns
+  about it. Observations now carry an origin, and only a `client` origin is scored; a
+  provider-only or unattributed contact is `inconclusive` rather than a false `fail`
+  about a provider.
 - Draft email lane declarations for Apple Mail and Thunderbird reading the same
   synthetic Gmail account from the same vantage, differing only in the setting the
   check measures, plus a draft `email` suite repeating three times to expose flaky
