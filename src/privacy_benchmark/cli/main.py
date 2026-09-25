@@ -59,6 +59,7 @@ from privacy_benchmark.harness.preflight import (
     observe_vantage,
 )
 from privacy_benchmark.harness.publishing import evaluate_publication, stage_publication
+from privacy_benchmark.harness.report import load_report, publishable, write_report
 from privacy_benchmark.spec.constants import PACKAGE_VERSION
 from privacy_benchmark.spec.models import (
     CompletionState,
@@ -733,6 +734,57 @@ def rollup_command(*, bundle: Path, output: Path, as_table: bool) -> None:
             }
         )
     if rollup.bundle_completion is not CompletionState.COMPLETE:
+        raise click.exceptions.Exit(2)
+
+
+@main.command("report")
+@click.option(
+    "--bundle",
+    type=click.Path(path_type=Path, file_okay=False, exists=True),
+    required=True,
+    help="A run bundle produced by 'pt-bench aggregate'.",
+)
+@click.option(
+    "--output",
+    type=click.Path(path_type=Path, dir_okay=False),
+    required=True,
+    help="Where to write the report. Must be outside the bundle.",
+)
+@click.option(
+    "--stdout",
+    "to_stdout",
+    is_flag=True,
+    help="Print the report instead of a JSON summary.",
+)
+def report_command(*, bundle: Path, output: Path, to_stdout: bool) -> None:
+    """Render a publication-ready report from a finalized run bundle.
+
+    Reads only from a bundle whose checksums verify, and states plainly when the run
+    was not canonical. Exits 2 for a bundle that is incomplete or was not produced in
+    GitHub Actions, so a caller can refuse to publish it rather than reading a
+    plausible-looking table.
+    """
+
+    try:
+        _, provenance = load_report(bundle)
+        text = write_report(bundle, output)
+    except Exception as error:
+        raise click.ClickException(str(error)) from error
+
+    reasons = publishable(provenance)
+    if to_stdout:
+        click.echo(text)
+    else:
+        _emit_json(
+            {
+                "output": str(output),
+                "bundle": bundle.name,
+                "suite": provenance.suite,
+                "publishable": not reasons,
+                "not_publishable_because": list(reasons),
+            }
+        )
+    if reasons:
         raise click.exceptions.Exit(2)
 
 
