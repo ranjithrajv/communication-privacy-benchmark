@@ -32,10 +32,11 @@ on:
         type: boolean
         default: false
 
+# Read-only at the workflow level. Only the deploy job needs to write, so the elevated
+# permissions are granted there and nowhere else: the build job runs third-party actions
+# and executes measured code, and it has no reason to hold a Pages or OIDC credential.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 # One deployment at a time. Concurrent deploys would race on the Pages environment and the
 # later one could publish a site generated from a different bundle.
@@ -56,7 +57,9 @@ jobs:
       publishable: ${{ steps.decision.outputs.publishable }}
       bundle: ${{ steps.decision.outputs.bundle }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install the project
         run: uv sync --locked --all-extras --all-groups
@@ -130,7 +133,7 @@ jobs:
           echo "::warning::Publishing a page that carries its own publication refusal."
           cat "$SUMMARY"
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: ${{ env.SITE }}
 
@@ -142,10 +145,15 @@ jobs:
       && needs.build.result == 'success'
       && (needs.build.outputs.publishable == 'true' || inputs.publish_refused == true)
     runs-on: ubuntu-latest
+    # Held here rather than at the workflow level so the build job, which executes measured
+    # code, never carries a Pages deployment or OIDC-issuing credential.
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Deploy
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
