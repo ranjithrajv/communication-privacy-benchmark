@@ -1,0 +1,22 @@
+schema_version = "1alpha1"
+check_id = "email.referrer-disclosure"
+version = "1.0.0"
+status = "draft"
+title = "Referrer and identifier disclosure on a followed link"
+description = "Determines what the client sends to a third-party host when the reader follows a link in a synthetic message, specifically whether a Referer header or a canary-carried identifier reaches a host the reader chose to visit. This is measured separately because a client can block all passive remote content and still leak the mailbox or message identifier on an active navigation the reader initiated deliberately, which is a consent question rather than a passive-tracking one. Unimplemented because it needs a second canary host distinct from the tracking host, so that leakage to an unrelated party is distinguishable from the deliberate visit itself."
+channel = "email"
+evidence_class = "measured"
+adapter_id = "unimplemented"
+canonical = true
+timeout_seconds = 1800
+runner_classes = ["self_hosted_macos", "self_hosted_android"]
+
+[[threat_models]]
+id = "mailbox.identity-disclosure"
+title = "Mailbox identity disclosure"
+description = "A third-party host the reader visited learns the reader's mailbox or account identifier from a Referer header or a link identifier, and can correlate the visit with a specific account."
+
+[[threat_models]]
+id = "conversation.confidentiality"
+title = "Conversation confidentiality"
+description = "A third-party host learns that the reader is engaged in a specific conversation, and which parties it involves, from identifiers carried on a link."

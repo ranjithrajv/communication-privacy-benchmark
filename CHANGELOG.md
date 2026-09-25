@@ -25,6 +25,16 @@ All notable changes to this project are documented in this file. The format foll
 
 ### Added
 
+- Six draft email disclosure checks joining `email.remote-content`, covering DNS and
+  SNI resolution, reader identification, remote references in calendar, vCard, SVG and
+  nested-message parts, background fetches with no reader interaction,
+  `List-Unsubscribe` header fetches, and referrer or identifier disclosure on a followed
+  link. They are separate checks because each has a distinct adversary and a distinct
+  control: a client that blocks body images while rendering a calendar invite is
+  invisible to a body-only test, and folding that into one result would hide it. Only
+  `email.remote-content` has an adapter; the rest are `unimplemented` and each
+  description states what it is still waiting for.
+
 - EPT gateway adapter behind `pt-bench execute --adapter ept`, implementing
   `email.remote-content` against a versioned private-gateway contract. Gateway
   configuration and the slot-to-mailbox mapping are read from the environment, never

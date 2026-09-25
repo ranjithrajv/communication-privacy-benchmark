@@ -2,9 +2,17 @@ schema_version = "1alpha1"
 suite_id = "email"
 version = "1.0.0"
 status = "draft"
-title = "Email remote-content pilot suite"
-description = "The first canonical wedge: two native mail clients reading the same synthetic Gmail account from the same vantage, so a difference between rows is attributable to the client. Draft because the EPT gateway is not pinned or deployed, no synthetic mailbox is provisioned, the physical Mac lane does not exist, and the Google provider-terms review is pending."
-checks = ["email.remote-content@1.0.0"]
+title = "Email disclosure pilot suite"
+description = "The first canonical wedge: two native mail clients reading the same synthetic Gmail account from the same vantage, so a difference between rows is attributable to the client. The checks are separate rather than one aggregate because each has a different adversary and a different control, and a client that blocks body images while rendering a calendar invite is not caught by a body test. Draft because the EPT gateway is not pinned or deployed, no synthetic mailbox is provisioned, the physical Mac lane does not exist, the Google provider-terms review is pending, and only email.remote-content has an adapter."
+checks = [
+  "email.remote-content@1.0.0",
+  "email.dns-prefetch@1.0.0",
+  "email.reader-identification@1.0.0",
+  "email.mime-remote-part@1.0.0",
+  "email.background-fetch@1.0.0",
+  "email.list-unsubscribe-fetch@1.0.0",
+  "email.referrer-disclosure@1.0.0",
+]
 subjects = [
   "apple-mail-gmail-consumer@1.0.0",
   "thunderbird-gmail-consumer@1.0.0",

@@ -9,12 +9,25 @@ import pytest
 from privacy_benchmark.spec.operations import OperationsRegistry
 from privacy_benchmark.spec.registry import Registry, RegistryValidationError, parse_reference
 
+#: The email disclosure families. Each has a distinct adversary and a distinct control,
+#: which is why they are separate checks rather than one aggregate: a client that blocks
+#: body images while rendering a calendar invite is invisible to a body-only test.
+EMAIL_CHECKS = {
+    "email.background-fetch",
+    "email.dns-prefetch",
+    "email.list-unsubscribe-fetch",
+    "email.mime-remote-part",
+    "email.reader-identification",
+    "email.referrer-disclosure",
+    "email.remote-content",
+}
+
 
 def test_checked_in_registry_is_valid(registry: Registry) -> None:
     assert set(registry.checks) == {
         ("chat.link-preview-fetch", "1.0.0"),
-        ("email.remote-content", "1.0.0"),
         ("harness.smoke", "1.0.0"),
+        *((f"{check_id}", "1.0.0") for check_id in sorted(EMAIL_CHECKS)),
     }
     assert ("fake-client", "1.0.0") in registry.subjects
     assert ("smoke", "1.0.0") in registry.suites
@@ -42,8 +55,45 @@ def test_the_email_check_has_an_adapter_but_stays_draft(registry: Registry) -> N
 def test_the_email_suite_is_draft_until_the_gateway_is_pinned(registry: Registry) -> None:
     suite = registry.resolve_suite("email@1.0.0")
     assert suite.status.value == "draft"
-    assert suite.checks == ("email.remote-content@1.0.0",)
+    assert {parse_reference(ref)[0] for ref in suite.checks} == EMAIL_CHECKS
     assert {parse_reference(ref)[0] for ref in suite.subjects} == EMAIL_SUBJECTS
+
+
+def test_every_email_check_declares_the_adversary_it_measures(registry: Registry) -> None:
+    """A check with no threat model cannot be read as a privacy claim."""
+
+    for check_id in sorted(EMAIL_CHECKS):
+        check = registry.resolve_check(f"{check_id}@1.0.0")
+        assert check.channel.value == "email", check_id
+        assert check.evidence_class.value == "measured", check_id
+        assert len(check.threat_models) >= 1, check_id
+        assert all(model.id and model.title and model.description for model in check.threat_models)
+
+
+def test_only_the_remote_content_check_has_an_adapter(registry: Registry) -> None:
+    """The corpus is declared ahead of the adapters, and says so per check.
+
+    The other six are unimplemented on purpose, and their descriptions must state what
+    each one is still waiting for rather than implying a measurement exists.
+    """
+
+    implemented = {
+        check_id
+        for check_id in EMAIL_CHECKS
+        if registry.resolve_check(f"{check_id}@1.0.0").adapter_id != "unimplemented"
+    }
+    assert implemented == {"email.remote-content"}
+    for check_id in sorted(EMAIL_CHECKS - implemented):
+        check = registry.resolve_check(f"{check_id}@1.0.0")
+        assert "Unimplemented because" in check.description, check_id
+        assert check.status.value == "draft", check_id
+
+
+def test_no_email_check_is_active_while_the_lane_is_unprovisioned(registry: Registry) -> None:
+    assert all(
+        registry.resolve_check(f"{check_id}@1.0.0").status.value == "draft"
+        for check_id in EMAIL_CHECKS
+    )
 
 
 def test_the_email_suite_repeats_enough_to_detect_flakiness(registry: Registry) -> None:
