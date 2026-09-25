@@ -6,6 +6,12 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Changed
+
+- Replaced the separate `pip-audit` development dependency with uv's built-in
+  `uv audit --locked --preview-features audit-command` workflow.
+- Pinned the uv CLI to 0.12.18 in every workflow.
+
 ### Added
 
 - First real email, webmail, or messaging subject adapter.

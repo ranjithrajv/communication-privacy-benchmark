@@ -10,6 +10,7 @@ uv run --locked ruff format --check .
 uv run --locked ruff check .
 uv run --locked mypy src tests
 uv run --locked pytest
+uv audit --locked --preview-features audit-command
 uv run --locked pt-bench registry validate
 uv run --locked pt-bench schemas export --output-dir schemas/v1alpha1 --check
 ```

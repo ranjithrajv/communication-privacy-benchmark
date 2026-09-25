@@ -35,6 +35,7 @@ The official Appium Python client is maintained by the Appium organization, supp
 |---|---|---|
 | Core language | CPython 3.14.x | Current stable Python line with first-party support from the selected libraries; do not enable free-threaded Python initially |
 | Python packaging | One distribution initially, managed by `uv` with `uv.lock` | Keep the MVP small; add a uv workspace only when a genuinely separate service or adapter package exists |
+| Dependency audit | `uv audit --locked --preview-features audit-command` | Audits the committed lockfile through uv's built-in vulnerability service without a second Python audit tool |
 | Public contracts | JSON Schema Draft 2020-12 generated from Pydantic | One source of truth for language-neutral, versionable GitHub artifact contracts |
 | Runtime models | Pydantic v2 | Typed configuration and serialized model boundaries with reviewed schema generation |
 | Independent schema tests | `jsonschema` | Validate representative artifacts against committed schemas without making the core depend on itself for validation |
@@ -67,7 +68,7 @@ The official Appium Python client is maintained by the Appium organization, supp
 These are version families observed on 25 September 2026, not floating dependencies. Exact versions and image digests must be committed to lockfiles or deployment configuration.
 
 - CPython 3.14.7
-- uv 0.12.x
+- uv 0.12.18
 - Pydantic 2.13.x
 - Click 8.5.x
 - HTTPX 0.28.x
@@ -391,7 +392,8 @@ Reconsider components only when evidence requires it:
 - Check-registry coverage check
 - Playwright/Appium adapter contract tests against fakes or local services
 - actionlint and zizmor
-- Dependency, license, and image scanning
+- `uv audit --locked --preview-features audit-command` dependency scanning
+- License and image scanning
 - SBOM and artifact-attestation verification
 
 The CI jobs test the harness; their test-runner reports are not benchmark outputs. No CI job may use real communication-product accounts.
@@ -412,6 +414,7 @@ Run the CLI directly with pinned Python and uv in Actions; do not wrap every job
 
 - [Python release status](https://devguide.python.org/versions/)
 - [uv project synchronization](https://docs.astral.sh/uv/concepts/projects/sync/)
+- [uv dependency auditing](https://docs.astral.sh/uv/guides/dependency-audit/)
 - [uv in GitHub Actions](https://docs.astral.sh/uv/guides/integration/github/)
 - [Pydantic JSON Schema](https://docs.pydantic.dev/latest/concepts/json_schema/)
 - [Click documentation](https://click.palletsprojects.com/en/stable/)
