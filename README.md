@@ -103,6 +103,7 @@ GITHUB_ACTIONS_ARCHITECTURE.md
 - [Competitive and collaboration landscape](COMMUNICATION_PRIVACY_LANDSCAPE.md)
 - [GitHub Actions architecture](GITHUB_ACTIONS_ARCHITECTURE.md)
 - [Technology stack decision](TECH_STACK_DECISION.md)
+- [Changelog](CHANGELOG.md)
 
 ## License
 
