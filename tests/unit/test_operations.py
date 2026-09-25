@@ -151,7 +151,7 @@ class TestPolicyInvariants:
             ReferenceVantage(vantage_id="v", country_code="ZZ", network_type="unknown")
 
     def test_a_redacting_policy_must_name_a_rule(self) -> None:
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError, match="must name at least one rule"):
             RetentionPolicy(
                 policy_id="r",
                 raw_retention="30-days",
@@ -259,9 +259,22 @@ class TestCanonicalGate:
             loaded.require_canonical_approval((("signal-android-default", "1.0.0"),))
 
     def test_an_unreviewed_subject_is_refused(self, repository_root: Path) -> None:
+        # The subject id must be a real, registered subject with its review removed:
+        # an unknown id would be refused by the same branch, so the test would pass
+        # without ever proving that a known-but-unreviewed subject is blocked.
         loaded = OperationsRegistry.load(repository_root)
+        unreviewed = tuple(
+            item
+            for item in loaded.policy.terms_reviews
+            if item.subject_id != "signal-android-default"
+        )
+        refusing = OperationsRegistry(
+            root=loaded.root,
+            path=loaded.path,
+            policy=loaded.policy.model_copy(update={"terms_reviews": unreviewed}),
+        )
         with pytest.raises(CanonicalGateError, match="no recorded provider-terms review"):
-            loaded.require_canonical_approval((("email.remote-content", "1.0.0"),))
+            refusing.require_canonical_approval((("signal-android-default", "1.0.0"),))
 
     def test_every_blocked_subject_is_reported(self, repository_root: Path) -> None:
         loaded = OperationsRegistry.load(repository_root)

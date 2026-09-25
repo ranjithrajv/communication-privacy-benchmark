@@ -102,8 +102,14 @@ class RetentionPolicy(StrictModel):
     raw_retention: str = Field(min_length=1, max_length=200)
     published_retention: str = Field(min_length=1, max_length=200)
     redaction_required: bool = True
-    redaction_rules: tuple[str, ...] = Field(min_length=1)
+    redaction_rules: tuple[str, ...] = ()
     notes: str | None = Field(default=None, min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def require_a_rule_when_redaction_is_required(self) -> Self:
+        if self.redaction_required and not self.redaction_rules:
+            raise ValueError("a policy that requires redaction must name at least one rule")
+        return self
 
 
 class RunnerLane(StrictModel):

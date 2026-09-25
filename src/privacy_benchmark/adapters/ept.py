@@ -315,6 +315,12 @@ class EptGatewayAdapter:
     adapter_id: str = "ept"
     version: str = "1.0.0"
     poll_interval_seconds: float = 5.0
+    #: Deliberately left unset by every production caller. Upstream EPT has no open
+    #: signal, so no honest observer can be supplied; with none, ``execute_check``
+    #: adjudicates with ``open_asserted=False`` and every result is ``inconclusive``.
+    #: That is the intended fail-closed behaviour, not an unfinished wiring gap: a
+    #: ``pass`` here would be a claim about a message nobody was ever shown. Supply an
+    #: observer only once a real open signal exists, never to unblock a run.
     open_observer: OpenObserver | None = None
     supported_checks: frozenset[str] = field(
         default_factory=lambda: frozenset({"email.remote-content"})

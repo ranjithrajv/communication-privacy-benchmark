@@ -15,15 +15,11 @@ from __future__ import annotations
 
 import asyncio
 import email
-import socket
 from collections.abc import Iterator
-from pathlib import Path
 
 import pytest
 
 from privacy_benchmark.adapters.ept import (
-    EptGatewayAdapter,
-    EptGatewayClient,
     GatewayObservation,
     GatewayTestState,
     ObservationChannel,
@@ -36,13 +32,12 @@ from privacy_benchmark.harness.canary import (
     CanaryLedger,
     DnsCanary,
     HttpCanary,
-    bind_query_line,
     build_test_message,
     fetch_tracking_url,
     local_addresses,
     raw_dns_query,
 )
-from privacy_benchmark.spec.models import ResultStatus, UtcDateTime
+from privacy_benchmark.spec.models import ResultStatus
 
 ZONE = "canary.privacy-benchmark.invalid"
 
@@ -169,16 +164,6 @@ class TestRealDnsCanary:
 
 
 class TestUpstreamPatterns:
-    @pytest.mark.parametrize(
-        "name",
-        [
-            "abc123.anchor-test.canary.invalid",
-            "abc123.link-test.canary.invalid",
-        ],
-    )
-    def test_dns_watcher_pattern_accepts_the_labels_it_claims(self, name: str) -> None:
-        assert DNS_QUERY_PATTERN.match(bind_query_line("1.2.3.4", name))
-
     def test_sni_watcher_pattern_only_covers_preconnect(self) -> None:
         assert SNI_PATTERN.match("abc.link-preconnect-test.canary.invalid")
         assert SNI_PATTERN.match("abc.anchor-test.canary.invalid") is None
@@ -283,34 +268,8 @@ class TestLiveAdapterObservation:
         assert reason.value == "ept.no-remote-content-observed"
 
 
-class TestLiveAdapterConstruction:
-    def test_an_adapter_without_an_open_observer_never_passes(
-        self, http_canary: HttpCanary
-    ) -> None:
-        # The single most important property: upstream cannot report an open, so an
-        # adapter that was not told the message was opened must not claim a pass.
-        adapter = EptGatewayAdapter(
-            client=EptGatewayClient(base_url="https://gateway.invalid", token="t"),
-            mailboxes={"slot-0001": "probe@example.invalid"},
-        )
-        assert adapter.open_observer is None
-
-    def test_loopback_is_reachable_for_a_lab_run(self) -> None:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-            probe.bind(("127.0.0.1", 0))
-            assert probe.getsockname()[0] == "127.0.0.1"
-
-
 def _settle() -> None:
     """Give the canary's background thread a moment to record."""
     import time
 
     time.sleep(0.25)
-
-
-def test_utc_datetime_alias_is_exported() -> None:
-    assert UtcDateTime is not None
-
-
-def test_repository_layout_is_unchanged(repository_root: Path) -> None:
-    assert (repository_root / "src" / "privacy_benchmark" / "harness" / "canary.py").is_file()

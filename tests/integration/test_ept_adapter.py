@@ -477,13 +477,6 @@ class TestAdapterBoundaries:
         assert result.error.retryable is True
         assert manifest_exit_code(manifest) == 1
 
-    def test_an_adapter_without_an_open_observer_carries_no_default_pass(
-        self,
-    ) -> None:
-        adapter = FakeGateway().adapter()
-        adapter.open_observer = None
-        assert adapter.open_observer is None
-
     def test_the_adapter_declares_the_checks_it_can_answer(self) -> None:
         adapter = FakeGateway().adapter()
         assert adapter.adapter_id == "ept"

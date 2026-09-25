@@ -32,8 +32,6 @@ from email.message import EmailMessage
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from privacy_benchmark.spec.serialization import json_bytes
-
 #: Reproduces the upstream ``dns-watcher`` query-log pattern: a BIND query-log line
 #: naming a per-test code under an ``anchor-test`` or ``link-test`` label in the canary
 #: zone. This matches realistic BIND output while preserving the label restriction that
@@ -399,7 +397,6 @@ __all__ = [
     "bind_query_line",
     "build_test_message",
     "fetch_tracking_url",
-    "json_bytes",
     "ledger_to_json",
     "local_addresses",
     "raw_dns_query",

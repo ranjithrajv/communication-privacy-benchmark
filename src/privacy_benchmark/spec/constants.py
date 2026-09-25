@@ -7,7 +7,6 @@ from typing import Final
 PACKAGE_VERSION: Final = "0.1.0"
 SCHEMA_VERSION: Final = "1alpha1"
 JSON_SCHEMA_DIALECT: Final = "https://json-schema.org/draft/2020-12/schema"
-SCHEMA_NAMESPACE: Final = "urn:communication-privacy-benchmark:schema"
 
 ID_PATTERN: Final = r"^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$"
 SEMVER_PATTERN: Final = (

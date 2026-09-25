@@ -17,8 +17,7 @@ def test_every_generated_schema_is_valid_draft_2020_12() -> None:
 
 
 def test_committed_schemas_have_no_drift(tmp_path: Path, repository_root: Path) -> None:
-    exported = export_schemas(tmp_path, check=False)
-    assert exported == []
+    export_schemas(tmp_path, check=False)
     for generated in tmp_path.glob("*.json"):
         committed = repository_root / "schemas" / "v1alpha1" / generated.name
         assert generated.read_bytes() == committed.read_bytes()

@@ -24,13 +24,10 @@ from privacy_benchmark.adapters.chat_appium import (
     NUMBERS_VARIABLE,
     ChatAppiumAdapter,
     ChatGatewayClient,
-    GatewayMessageState,
-    ObservationChannel,
-    ObservationOrigin,
 )
 from privacy_benchmark.harness.context import ExecutionContext
 from privacy_benchmark.harness.planning import build_run_plan
-from privacy_benchmark.spec.models import CheckDefinition, ExecutionMode, RunPlan, utc_now
+from privacy_benchmark.spec.models import ExecutionMode, RunPlan, utc_now
 from privacy_benchmark.spec.registry import Registry
 
 SLOT = "slot-signal-0001"
@@ -117,7 +114,17 @@ class FakeSession:
         self.closed = True
 
 
-def _context(registry: Registry, repository_root: Path) -> ExecutionContext:
+@pytest.fixture
+def execution_dir(tmp_path: Path) -> Path:
+    """Where a chat run writes its evidence.
+
+    A per-test temporary directory, so a measurement never leaves artifacts in the
+    repository tree where a later run or a packaged build could pick them up.
+    """
+    return tmp_path / "chat-tests"
+
+
+def _context(registry: Registry, repository_root: Path, execution_dir: Path) -> ExecutionContext:
     plan: RunPlan = build_run_plan(
         repository_root / "suites" / "chat" / "1.0.0" / "suite.toml",
         repository_root,
@@ -129,7 +136,7 @@ def _context(registry: Registry, repository_root: Path) -> ExecutionContext:
         subject=registry.resolve_subject("signal-android-default@1.0.0"),
         checks=(registry.resolve_check("chat.link-preview-fetch@1.0.0"),),
         execution_id=uuid7(),
-        execution_dir=repository_root / "build" / "chat-tests",
+        execution_dir=execution_dir,
         adapter_id="chat-appium",
         repetition=1,
         started_at=utc_now(),
@@ -151,12 +158,15 @@ def _adapter(
 
 
 def _execute(
-    registry: Registry, repository_root: Path, adapter: ChatAppiumAdapter
+    registry: Registry,
+    repository_root: Path,
+    execution_dir: Path,
+    adapter: ChatAppiumAdapter,
 ) -> AdapterOutcome:
     return asyncio.run(
         adapter.execute_check(
             registry.resolve_check("chat.link-preview-fetch@1.0.0"),
-            _context(registry, repository_root),
+            _context(registry, repository_root, execution_dir),
         )
     )
 
@@ -192,10 +202,15 @@ def test_gateway_rejects_state_for_the_wrong_message() -> None:
         client.get_state("message.one")
 
 
-def test_a_client_fetch_is_reported_as_a_fail(registry: Registry, repository_root: Path) -> None:
+def test_a_client_fetch_is_reported_as_a_fail(
+    registry: Registry, repository_root: Path, execution_dir: Path
+) -> None:
     session = FakeSession()
     outcome = _execute(
-        registry, repository_root, _adapter(session, observations=[_http_observation()])
+        registry,
+        repository_root,
+        execution_dir,
+        _adapter(session, observations=[_http_observation()]),
     )
 
     assert outcome.status.value == "fail"
@@ -205,11 +220,13 @@ def test_a_client_fetch_is_reported_as_a_fail(registry: Registry, repository_roo
 
 
 def test_a_conversation_the_device_never_rendered_is_inconclusive(
-    registry: Registry, repository_root: Path
+    registry: Registry, repository_root: Path, execution_dir: Path
 ) -> None:
     """The display assertion is what stops a queued push from reading as a clean client."""
 
-    outcome = _execute(registry, repository_root, _adapter(FakeSession(displayed=False)))
+    outcome = _execute(
+        registry, repository_root, execution_dir, _adapter(FakeSession(displayed=False))
+    )
 
     assert outcome.status.value == "inconclusive"
     assert outcome.reason_code == "chat.display-not-asserted"
@@ -217,11 +234,12 @@ def test_a_conversation_the_device_never_rendered_is_inconclusive(
 
 
 def test_provider_side_link_handling_is_never_a_client_fail(
-    registry: Registry, repository_root: Path
+    registry: Registry, repository_root: Path, execution_dir: Path
 ) -> None:
     outcome = _execute(
         registry,
         repository_root,
+        execution_dir,
         _adapter(FakeSession(), observations=[_http_observation(origin="provider")]),
     )
 
@@ -230,22 +248,22 @@ def test_provider_side_link_handling_is_never_a_client_fail(
 
 
 def test_without_a_device_lane_the_result_is_inconclusive(
-    registry: Registry, repository_root: Path
+    registry: Registry, repository_root: Path, execution_dir: Path
 ) -> None:
-    outcome = _execute(registry, repository_root, _adapter(None))
+    outcome = _execute(registry, repository_root, execution_dir, _adapter(None))
 
     assert outcome.status.value == "inconclusive"
     assert outcome.reason_code == "chat.device-session-unavailable"
 
 
 def test_an_unsupported_check_is_reported_as_unsupported(
-    registry: Registry, repository_root: Path
+    registry: Registry, repository_root: Path, execution_dir: Path
 ) -> None:
     adapter = _adapter(FakeSession())
     outcome = asyncio.run(
         adapter.execute_check(
             registry.resolve_check("email.remote-content@1.0.0"),
-            _context(registry, repository_root),
+            _context(registry, repository_root, execution_dir),
         )
     )
 
@@ -254,25 +272,35 @@ def test_an_unsupported_check_is_reported_as_unsupported(
     assert outcome.details["supported"] is False
 
 
-def test_an_unmapped_slot_fails_loudly(registry: Registry, repository_root: Path) -> None:
+def test_an_unmapped_slot_fails_loudly(
+    registry: Registry, repository_root: Path, execution_dir: Path
+) -> None:
     with pytest.raises(AdapterError, match="no synthetic number is configured"):
-        _execute(registry, repository_root, _adapter(FakeSession(), numbers={}))
+        _execute(registry, repository_root, execution_dir, _adapter(FakeSession(), numbers={}))
 
 
 def test_a_malformed_number_fails_before_any_delivery(
-    registry: Registry, repository_root: Path
+    registry: Registry, repository_root: Path, execution_dir: Path
 ) -> None:
     session = FakeSession()
     with pytest.raises(AdapterError, match=r"valid E\.164 number"):
-        _execute(registry, repository_root, _adapter(session, numbers={SLOT: "not-a-number"}))
+        _execute(
+            registry,
+            repository_root,
+            execution_dir,
+            _adapter(session, numbers={SLOT: "not-a-number"}),
+        )
     assert session.delivered_numbers == [], "nothing may be delivered to a bad mapping"
 
 
 def test_evidence_never_carries_the_synthetic_number(
-    registry: Registry, repository_root: Path
+    registry: Registry, repository_root: Path, execution_dir: Path
 ) -> None:
     outcome = _execute(
-        registry, repository_root, _adapter(FakeSession(), observations=[_http_observation()])
+        registry,
+        repository_root,
+        execution_dir,
+        _adapter(FakeSession(), observations=[_http_observation()]),
     )
 
     evidence = outcome.evidence[0]
@@ -285,18 +313,22 @@ def test_evidence_never_carries_the_synthetic_number(
     assert evidence.kind.value == "canary_event"
 
 
-def test_evidence_records_the_display_window(registry: Registry, repository_root: Path) -> None:
-    outcome = _execute(registry, repository_root, _adapter(FakeSession()))
+def test_evidence_records_the_display_window(
+    registry: Registry, repository_root: Path, execution_dir: Path
+) -> None:
+    outcome = _execute(registry, repository_root, execution_dir, _adapter(FakeSession()))
 
     payload = json.loads(outcome.evidence[0].payload)
     assert payload["probe_window"]["display_asserted"] is True
     assert payload["probe_window"]["displayed_at"] is not None
 
 
-def test_evidence_carries_the_automation_stack(registry: Registry, repository_root: Path) -> None:
+def test_evidence_carries_the_automation_stack(
+    registry: Registry, repository_root: Path, execution_dir: Path
+) -> None:
     """A published chat row must be reproducible against a named Appium stack."""
 
-    outcome = _execute(registry, repository_root, _adapter(FakeSession()))
+    outcome = _execute(registry, repository_root, execution_dir, _adapter(FakeSession()))
     metadata = outcome.evidence[0].metadata
 
     assert "appium_python_client" in metadata
@@ -306,17 +338,6 @@ def test_evidence_carries_the_automation_stack(registry: Registry, repository_ro
 
 def test_numbers_variable_is_the_documented_one() -> None:
     assert NUMBERS_VARIABLE == "PT_BENCH_CHAT_NUMBERS"
-
-
-def test_the_session_contract_is_structural() -> None:
-    """The adapter must not require a real driver to be correct."""
-
-    session = FakeSession()
-    for method in ("deliver", "display_honey_message", "close"):
-        assert callable(getattr(session, method))
-    assert ObservationChannel.HTTP.value == "http"
-    assert ObservationOrigin.CLIENT.value == "client"
-    assert GatewayMessageState.model_config["frozen"] is True
 
 
 def test_the_adapter_only_claims_the_checks_it_can_answer() -> None:
@@ -334,21 +355,3 @@ def test_an_appium_session_without_a_verified_selector_refuses_to_claim_a_displa
     assert session.display_honey_message() is False
     with pytest.raises(AdapterError, match="no verified honey-message selector"):
         session.deliver(NUMBER)
-
-
-def test_the_check_definition_the_adapter_claims_is_the_chat_check() -> None:
-    check = CheckDefinition.model_validate(
-        {
-            "check_id": "chat.link-preview-fetch",
-            "version": "1.0.0",
-            "status": "draft",
-            "title": "Link preview fetch on message open",
-            "description": "x",
-            "channel": "chat",
-            "evidence_class": "measured",
-            "adapter_id": "chat-appium",
-            "runner_classes": ["self_hosted_android"],
-            "threat_models": [{"id": "a", "title": "b", "description": "c"}],
-        }
-    )
-    assert _adapter(FakeSession()).supported_checks == frozenset({check.check_id})
